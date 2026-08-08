@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* LIGHT THEME (Your perfect original default) */
+:root {
+  --color-primary-1: #0f172a; /* Used for dark text and navbar */
+  --color-primary-2: #1e293b;
+  --color-primary-3: #475569;
+  --color-accent-1: #3b82f6; 
+  --color-accent-2: #ef4444; 
+  --color-neutral-2: #ffffff; /* Clean white backgrounds */
+  --color-neutral-3: #e5e7eb;
+}
+
+/* DARK THEME (Only activates when the user clicks the switch) */
+.dark {
+  --color-primary-1: #f8fafc; /* Flips text to white */
+  --color-primary-2: #e2e8f0;
+  --color-primary-3: #94a3b8;
+  --color-accent-1: #38bdf8; 
+  --color-accent-2: #ef4444; 
+  --color-neutral-2: #020617; /* Flips backgrounds to midnight */
+  --color-neutral-3: #334155;
+}
+
+body {
+  background-color: var(--color-neutral-2);
+  color: var(--color-primary-1);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}

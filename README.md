@@ -1,63 +1,16 @@
-# 🎬 Queue Up
+# React + Vite
 
-Queue Up is a premium, full-stack entertainment tracking application designed to help users organize their movie and TV show consumption. Built with a focus on seamless UX, it features a glassmorphism design, instant dark/light mode switching, and a robust backend for tracking viewing history.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## ✨ Key Features
+Currently, two official plugins are available:
 
-* **Universal Search & Discovery:** Leverages the TMDB API to fetch dynamic, paginated data for both movies and TV shows using unified endpoints.
-* **Smart Queue & Vault System:** Users can add titles to their active queue. Once marked as watched, items are automatically migrated to a dedicated "Completed Vault," keeping the active dashboard clean.
-* **Advanced TV Show Tracking:** 
-  * Granular tracking with an accordion-style UI to browse seasons and episodes.
-  * Modal-based episode details (runtime, air date, guest stars, overview).
-  * **Bulk Actions:** "Mark Season as Watched" functionality that runs background upsert queries to instantly log entire seasons to the database without UI lag.
-* **Custom User Profiles:** Built-in Supabase Storage allowing users to upload custom avatars and banners, alongside editable nicknames and personal bios.
-* **Premium UI/UX:** Fully responsive design utilizing Tailwind CSS, featuring glassmorphism overlays, dynamic gradients, and flawless theme toggling.
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-## 🛠️ Tech Stack
+## React Compiler
 
-* **Frontend:** React, React Router, Tailwind CSS
-* **Backend as a Service (BaaS):** Supabase (Authentication, PostgreSQL Database, Storage Buckets)
-* **Data Provider:** TMDB (The Movie Database) API
-* **Deployment & Build:** Vite
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## 🚀 Getting Started
+## Expanding the ESLint configuration
 
-To run this project locally, follow these steps:
-
-### 1. Clone the repository
-\`\`\`bash
-git clone https://github.com/yourusername/queue-up.git
-cd queue-up
-\`\`\`
-
-### 2. Install dependencies
-\`\`\`bash
-npm install
-\`\`\`
-
-### 3. Environment Variables
-Create a `.env` file in the root directory and add your API keys (see `.env.example` for reference):
-\`\`\`text
-VITE_TMDB_API_KEY=your_tmdb_api_key_here
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-\`\`\`
-
-### 4. Run the development server
-\`\`\`bash
-npm run dev
-\`\`\`
-
-## 🗄️ Database Schema Snapshot
-
-This app utilizes several interconnected Supabase tables governed by strict Row Level Security (RLS) policies:
-* `watchlist`: Tracks active movies/shows.
-* `completed_items`: Vault for finished media.
-* `watched_movies`: Tracks standalone completed movies.
-* `watched_seasons` & `watched_episodes`: Granular tracking for TV shows to prevent duplicate entries and enable bulk upserts.
-
-## 👨‍💻 Author
-
-**Harshit Yadav**
-* B.Tech Computer Science & Internet of Things, Netaji Subhas University of Technology (East Campus)
-* Focused on building high-performance applications with React, Python, and scalable backend architectures.
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
