@@ -1,8 +1,8 @@
-# 🎬 Queue Up
+#  Queue Up
 
 Queue Up is a premium, full-stack entertainment tracking application designed to help users organize their movie and TV show consumption. Built with a focus on seamless UX, it features a glassmorphism design, instant dark/light mode switching, and a robust backend for tracking viewing history.
 
-## ✨ Key Features
+##  Key Features
 
 * **Universal Search & Discovery:** Leverages the TMDB API to fetch dynamic, paginated data for both movies and TV shows using unified endpoints.
 * **Smart Queue & Vault System:** Users can add titles to their active queue. Once marked as watched, items are automatically migrated to a dedicated "Completed Vault," keeping the active dashboard clean.
@@ -13,14 +13,14 @@ Queue Up is a premium, full-stack entertainment tracking application designed to
 * **Custom User Profiles:** Built-in Supabase Storage allowing users to upload custom avatars and banners, alongside editable nicknames and personal bios.
 * **Premium UI/UX:** Fully responsive design utilizing Tailwind CSS, featuring glassmorphism overlays, dynamic gradients, and flawless theme toggling.
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 * **Frontend:** React, React Router, Tailwind CSS
 * **Backend as a Service (BaaS):** Supabase (Authentication, PostgreSQL Database, Storage Buckets)
 * **Data Provider:** TMDB (The Movie Database) API
 * **Deployment & Build:** Vite
 
-## 🚀 Getting Started
+##  Getting Started
 
 To run this project locally, follow these steps:
 
@@ -48,7 +48,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 npm run dev
 \`\`\`
 
-## 🗄️ Database Schema Snapshot
+##  Database Schema Snapshot
 
 This app utilizes several interconnected Supabase tables governed by strict Row Level Security (RLS) policies:
 * `watchlist`: Tracks active movies/shows.
@@ -56,7 +56,7 @@ This app utilizes several interconnected Supabase tables governed by strict Row 
 * `watched_movies`: Tracks standalone completed movies.
 * `watched_seasons` & `watched_episodes`: Granular tracking for TV shows to prevent duplicate entries and enable bulk upserts.
 
-## 👨‍💻 Author
+##  Author
 
 **Harshit Yadav**
 * B.Tech Computer Science & Internet of Things, Netaji Subhas University of Technology (East Campus)
