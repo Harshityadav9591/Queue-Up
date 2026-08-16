@@ -445,5 +445,3 @@ export default function ShowDetailsPage() {
     </div>
   );
 }
-  );
-}
