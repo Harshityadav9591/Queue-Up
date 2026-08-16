@@ -20,8 +20,18 @@ export default function AuthPage() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        // We add the 'options' object to explicitly set the redirect URL
+        const { error } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/profile`
+          }
+        });
+        
         if (error) throw error;
+        
+        // Trigger the success UI state
         setIsSignupSubmitted(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
