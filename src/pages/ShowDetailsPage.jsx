@@ -101,9 +101,27 @@ export default function ShowDetailsPage() {
       setIsInWatchlist(false);
       toast.success(`Removed from your queue!`);
     } else {
-      await supabase.from('watchlist').insert([{ user_id: session.user.id, movie_id: show.id, title: show.name, poster_path: show.poster_path, media_type: 'tv' }]);
-      setIsInWatchlist(true);
-      toast.success(`Added to your queue!`);
+      const showIdStr = show.id.toString();
+      const { data: existing } = await supabase
+        .from('watchlist')
+        .select('id')
+        .eq('movie_id', showIdStr)
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (existing) {
+        setIsInWatchlist(true);
+      } else {
+        const { error } = await supabase
+          .from('watchlist')
+          .insert([{ user_id: session.user.id, movie_id: show.id, title: show.name, poster_path: show.poster_path, media_type: 'tv' }]);
+        if (!error) {
+          setIsInWatchlist(true);
+          toast.success(`Added to your queue!`);
+        } else {
+          toast.error('Failed to add to queue.');
+        }
+      }
     }
     setIsToggling(false);
   };
