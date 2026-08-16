@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
@@ -12,6 +12,10 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
 
   const [inWatchlist, setInWatchlist] = useState(initialInWatchlist);
   const [isAdding, setIsAdding] = useState(false);
+
+  useEffect(() => {
+    setInWatchlist(initialInWatchlist);
+  }, [initialInWatchlist]);
 
   const handleQuickAdd = async (e) => {
     // Prevent the Link from navigating
