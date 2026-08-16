@@ -24,14 +24,15 @@ export default function DiscoverPage() {
 
   // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
   useEffect(() => {
-    async function fetchInitialData() {
+    async function fetchGenresData() {
       const genreData = await getGenres(contentType);
       setGenres(genreData);
       // Reset filters when switching types
       setSelectedGenre('');
       setSelectedYear('');
+    }
 
-      // Pre-fetch the user's watchlist IDs so cards can show the correct initial state
+    async function fetchWatchlistData() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const { data: wlData } = await supabase
@@ -39,11 +40,13 @@ export default function DiscoverPage() {
           .select('movie_id')
           .eq('user_id', session.user.id);
         if (wlData) {
-          setWatchlistIds(new Set(wlData.map(r => r.movie_id)));
+          setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
         }
       }
     }
-    fetchInitialData();
+
+    fetchGenresData();
+    fetchWatchlistData();
   }, [contentType]);
 
   // 2. Fetch Content whenever page, genre, year, or contentType changes

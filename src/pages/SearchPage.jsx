@@ -4,6 +4,7 @@ import { searchContent, getImageUrl } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import Button from '../components/ui/Button';
+import { supabase } from '../lib/supabase';
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
@@ -13,6 +14,23 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [watchlistIds, setWatchlistIds] = useState(new Set());
+
+  useEffect(() => {
+    async function fetchWatchlist() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: wlData } = await supabase
+          .from('watchlist')
+          .select('movie_id')
+          .eq('user_id', session.user.id);
+        if (wlData) {
+          setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
+        }
+      }
+    }
+    fetchWatchlist();
+  }, []);
 
   useEffect(() => {
     async function fetchResults() {
@@ -63,6 +81,7 @@ export default function SearchPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
               {results.map((item, index) => {
                 const isTV = item.media_type === 'tv';
+                const mediaType = isTV ? 'tv' : 'movie';
                 const title = isTV ? item.name : item.title;
                 const releaseDate = isTV ? item.first_air_date : item.release_date;
                 const year = releaseDate ? releaseDate.substring(0, 4) : 'N/A';
@@ -75,6 +94,9 @@ export default function SearchPage() {
                     genre={isTV ? 'TV Show' : 'Movie'} 
                     releaseYear={year} 
                     posterUrl={getImageUrl(item.poster_path)} 
+                    posterPath={item.poster_path}
+                    mediaType={mediaType}
+                    initialInWatchlist={watchlistIds.has(String(item.id))}
                     linkUrl={isTV ? `/tv/${item.id}` : `/movie/${item.id}`} 
                   />
                 );
