@@ -1,10 +1,9 @@
-const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY;
 const BASE_URL = 'https://api.themoviedb.org/3';
 
 // Fetch genres dynamically based on type ('movie' or 'tv')
 export async function getGenres(type = 'movie') {
   try {
-    const res = await fetch(`https://api.themoviedb.org/3/genre/${type}/list?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
+    const res = await fetch(`${BASE_URL}/genre/${type}/list?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     const data = await res.json();
     return data.genres;
   } catch (error) {
@@ -16,10 +15,9 @@ export async function getGenres(type = 'movie') {
 // Fetch content dynamically (Movies or TV Shows/Anime)
 export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '') {
   try {
-    // TMDB uses different date parameters for movies vs tv shows
     const yearParam = type === 'movie' ? 'primary_release_year' : 'first_air_date_year';
     
-    let url = `https://api.themoviedb.org/3/discover/${type}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&page=${page}`;
+    let url = `${BASE_URL}/discover/${type}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&page=${page}`;
 
     if (genre) url += `&with_genres=${genre}`;
     if (year) url += `&${yearParam}=${year}`;
@@ -34,10 +32,10 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
 }
 
 export async function searchMovies(query) {
-  if (!TMDB_API_KEY || !query) return [];
+  if (!import.meta.env.VITE_TMDB_API_KEY || !query) return [];
 
   try {
-    const response = await fetch(`${BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}`);
+    const response = await fetch(`${BASE_URL}/search/movie?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}`);
     const data = await response.json();
     
     if (!response.ok) {
@@ -55,12 +53,13 @@ export async function searchMovies(query) {
 export function getImageUrl(path, size = 'w500') {
   return path ? `https://image.tmdb.org/t/p/${size}${path}` : '/movie-poster.jpg';
 }
+
 export async function getMovieDetails(id) {
-  if (!TMDB_API_KEY || !id) return null;
+  if (!import.meta.env.VITE_TMDB_API_KEY || !id) return null;
 
   try {
-    // append_to_response fetches the cast (credits) and trailers (videos) in the same request!
-    const response = await fetch(`${BASE_URL}/movie/${id}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos`);
+    // append_to_response fetches the cast (credits) and trailers (videos) in the same request
+    const response = await fetch(`${BASE_URL}/movie/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
     
     if (!response.ok) {
       console.error("TMDB Details API Error:", response.statusText);
@@ -77,7 +76,7 @@ export async function getMovieDetails(id) {
 // Fetch TV Show / Anime Details
 export async function getShowDetails(id) {
   try {
-    const res = await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
+    const res = await fetch(`${BASE_URL}/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
     return await res.json();
   } catch (error) {
     console.error("Error fetching show details:", error);
@@ -88,7 +87,7 @@ export async function getShowDetails(id) {
 // Fetch individual Season Details (including all episodes)
 export async function getSeasonDetails(showId, seasonNumber) {
   try {
-    const res = await fetch(`https://api.themoviedb.org/3/tv/${showId}/season/${seasonNumber}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
+    const res = await fetch(`${BASE_URL}/tv/${showId}/season/${seasonNumber}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     return await res.json();
   } catch (error) {
     console.error("Error fetching season details:", error);
@@ -99,7 +98,7 @@ export async function getSeasonDetails(showId, seasonNumber) {
 // Universal Search (Movies & TV Shows)
 export async function searchContent(query, page = 1) {
   try {
-    const res = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=${page}`);
+    const res = await fetch(`${BASE_URL}/search/multi?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=${page}`);
     const data = await res.json();
     
     // Filter out 'person' results so we only get playable media
