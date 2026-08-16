@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import { supabase } from '../lib/supabase';
 import Button from '../components/ui/Button';
 
@@ -10,6 +11,8 @@ export default function AuthPage() {
   const [message, setMessage] = useState('');
   const [isSignupSubmitted, setIsSignupSubmitted] = useState(false);
 
+  const navigate = useNavigate(); // Initialize navigate
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -19,13 +22,13 @@ export default function AuthPage() {
       if (isSignUp) {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        
-        // Trigger the success UI state instead of just setting a message
         setIsSignupSubmitted(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        window.location.href = '/discover';
+        
+        // Client-side redirect to /discover without a hard browser reload
+        navigate('/discover');
       }
     } catch (error) {
       setMessage(error.message);
@@ -41,7 +44,6 @@ export default function AuthPage() {
           {isSignUp ? 'Create Account' : 'Welcome Back'}
         </h2>
         
-        {/* CONDITIONAL RENDER: Show success message if submitted, otherwise show the form */}
         {isSignupSubmitted && isSignUp ? (
           <div className="flex flex-col items-center justify-center py-6 text-center animate-fade-in">
             <p className="text-emerald-600 font-bold text-lg flex flex-col items-center gap-2">
@@ -95,7 +97,7 @@ export default function AuthPage() {
                 type="button" 
                 onClick={() => {
                   setIsSignUp(!isSignUp);
-                  setIsSignupSubmitted(false); // Reset just in case they toggle back and forth
+                  setIsSignupSubmitted(false);
                 }}
                 className="text-secondary-1 hover:underline"
               >
@@ -105,9 +107,6 @@ export default function AuthPage() {
           </>
         )}
       </div>
-    </div>
-  );
-}
     </div>
   );
 }
