@@ -125,16 +125,9 @@ export default function QueuePage() {
                   id={targetId} 
                   title={item.title} 
                   genre={activeTab === 'queue' ? 'In Queue' : 'Completed'} 
-                  releaseYear="N/A" 
-                  posterUrl={getImageUrl(item.poster_path)}
-                  posterPath={item.poster_path}
-                  mediaType={type}
-                  initialInWatchlist={activeTab === 'queue'}
+                  releaseYear={item.release_year}
+                  posterUrl={getImageUrl(item.poster_path)} 
                   linkUrl={`/${type}/${targetId}`}
-                  onRemoved={activeTab === 'queue'
-                    ? () => setItems(prev => prev.filter(i => i.id !== item.id))
-                    : undefined
-                  }
                 />
               );
             })}
