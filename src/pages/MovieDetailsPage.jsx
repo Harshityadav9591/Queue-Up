@@ -24,6 +24,10 @@ export default function MovieDetailsPage() {
     async function fetchDetailsAndStatus() {
       setLoading(true);
       const data = await getMovieDetails(id);
+      
+      // DEBUG LOG: Check your browser console! If 'credits' is missing here, you need to hard-refresh (Ctrl+F5)
+      console.log("TMDB Movie Data:", data); 
+      
       setMovie(data);
 
       if (data) {
@@ -34,7 +38,7 @@ export default function MovieDetailsPage() {
           const { data: watchlistItem } = await supabase
             .from('watchlist')
             .select('id')
-            .eq('movie_id', data.id)
+            .eq('movie_id', data.id.toString())
             .eq('user_id', session.user.id)
             .maybeSingle();
 
@@ -71,7 +75,7 @@ export default function MovieDetailsPage() {
       const { error } = await supabase
         .from('watchlist')
         .delete()
-        .eq('movie_id', movie.id)
+        .eq('movie_id', movie.id.toString())
         .eq('user_id', session.user.id);
 
       if (!error) {
@@ -81,7 +85,7 @@ export default function MovieDetailsPage() {
     } else {
       const { error } = await supabase
         .from('watchlist')
-        .insert([{ user_id: session.user.id, movie_id: movie.id, title: movie.title, poster_path: movie.poster_path, media_type: 'movie' }]);
+        .insert([{ user_id: session.user.id, movie_id: movie.id.toString(), title: movie.title, poster_path: movie.poster_path, media_type: 'movie' }]);
 
       if (!error) {
         setIsInWatchlist(true);
@@ -142,6 +146,8 @@ export default function MovieDetailsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] pb-16 transition-colors duration-500 pt-20">
+      
+      {/* Hero Banner */}
       <div className="h-[60vh] md:h-[70vh] w-full bg-cover bg-center relative" style={{ backgroundImage: `url(${backdropUrl})` }}>
         <div className="absolute inset-0 bg-gradient-to-t from-slate-50 dark:from-[#0b101e] via-slate-50/80 dark:via-[#0b101e]/80 to-transparent transition-colors duration-500"></div>
         <div className="container mx-auto px-6 h-full flex items-end pb-12 relative z-10">
@@ -185,6 +191,30 @@ export default function MovieDetailsPage() {
         </div>
       </div>
 
+      {/* --- CAST SECTION --- */}
+      {movie.credits?.cast && movie.credits.cast.length > 0 && (
+        <div className="container mx-auto px-6 py-8 max-w-5xl border-t border-slate-200 dark:border-white/10 mt-8">
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Top Cast</h2>
+          
+          <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory scrollbar-hide">
+            {movie.credits.cast.slice(0, 15).map((actor) => (
+              <div key={actor.id} className="min-w-[140px] w-[140px] flex-shrink-0 snap-start bg-white dark:bg-slate-800/80 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-white/5 transition-colors">
+                {actor.profile_path ? (
+                  <img src={getImageUrl(actor.profile_path, 'w185')} alt={actor.name} className="w-full h-[175px] object-cover" />
+                ) : (
+                  <div className="w-full h-[175px] bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-4xl">👤</div>
+                )}
+                <div className="p-3">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{actor.name}</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{actor.character}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Trailer Modal */}
       {isTrailerOpen && trailer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 md:p-12">
           <div className="relative w-full max-w-5xl aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-white/10">
