@@ -25,8 +25,6 @@ export default function MovieDetailsPage() {
       setLoading(true);
       const data = await getMovieDetails(id);
       
-      // DEBUG LOG: Check your browser console! If 'credits' is missing here, you need to hard-refresh (Ctrl+F5)
-      console.log("TMDB Movie Data:", data); 
       
       setMovie(data);
 
@@ -83,13 +81,27 @@ export default function MovieDetailsPage() {
         toast.success("Removed from your queue!");
       }
     } else {
-      const { error } = await supabase
+      const movieIdStr = movie.id.toString();
+      const { data: existing } = await supabase
         .from('watchlist')
-        .insert([{ user_id: session.user.id, movie_id: movie.id.toString(), title: movie.title, poster_path: movie.poster_path, media_type: 'movie' }]);
+        .select('id')
+        .eq('movie_id', movieIdStr)
+        .eq('user_id', session.user.id)
+        .maybeSingle();
 
-      if (!error) {
+      if (existing) {
         setIsInWatchlist(true);
-        toast.success("Added to your queue!");
+      } else {
+        const { error } = await supabase
+          .from('watchlist')
+          .insert([{ user_id: session.user.id, movie_id: movieIdStr, title: movie.title, poster_path: movie.poster_path, media_type: 'movie' }]);
+
+        if (!error) {
+          setIsInWatchlist(true);
+          toast.success("Added to your queue!");
+        } else {
+          toast.error("Failed to add to queue.");
+        }
       }
     }
     setIsToggling(false);

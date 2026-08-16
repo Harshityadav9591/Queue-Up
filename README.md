@@ -25,28 +25,28 @@ Queue Up is a premium, full-stack entertainment tracking application designed to
 To run this project locally, follow these steps:
 
 ### 1. Clone the repository
-\`\`\`bash
+```bash
 git clone https://github.com/yourusername/queue-up.git
 cd queue-up
-\`\`\`
+```
 
 ### 2. Install dependencies
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 ### 3. Environment Variables
 Create a `.env` file in the root directory and add your API keys (see `.env.example` for reference):
-\`\`\`text
+```text
 VITE_TMDB_API_KEY=your_tmdb_api_key_here
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-\`\`\`
+```
 
 ### 4. Run the development server
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 ##  Database Schema Snapshot
 

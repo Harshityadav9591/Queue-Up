@@ -3,6 +3,7 @@ import { getDiscoverContent, getGenres, getImageUrl } from '../lib/tmdb'; // Not
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import Button from '../components/ui/Button';
+import { supabase } from '../lib/supabase';
 
 export default function DiscoverPage() {
   const [items, setItems] = useState([]);
@@ -18,7 +19,10 @@ export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
 
-  // 1. Fetch Genres whenever contentType changes
+  // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
+  const [watchlistIds, setWatchlistIds] = useState(new Set());
+
+  // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
   useEffect(() => {
     async function fetchInitialData() {
       const genreData = await getGenres(contentType);
@@ -26,6 +30,18 @@ export default function DiscoverPage() {
       // Reset filters when switching types
       setSelectedGenre('');
       setSelectedYear('');
+
+      // Pre-fetch the user's watchlist IDs so cards can show the correct initial state
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: wlData } = await supabase
+          .from('watchlist')
+          .select('movie_id')
+          .eq('user_id', session.user.id);
+        if (wlData) {
+          setWatchlistIds(new Set(wlData.map(r => r.movie_id)));
+        }
+      }
     }
     fetchInitialData();
   }, [contentType]);
@@ -155,7 +171,10 @@ export default function DiscoverPage() {
                     title={title} 
                     genre={contentType === 'tv' ? 'TV Show' : 'Movie'} 
                     releaseYear={year} 
-                    posterUrl={getImageUrl(item.poster_path)} 
+                    posterUrl={getImageUrl(item.poster_path)}
+                    posterPath={item.poster_path}
+                    mediaType={contentType}
+                    initialInWatchlist={watchlistIds.has(item.id.toString())}
                     // Important: Passing the type so your details page knows what to fetch later
                     linkUrl={`/${contentType}/${item.id}`} 
                   />
