@@ -410,6 +410,28 @@ export default function ShowDetailsPage() {
           </div>
         </div>
       )}
+      {/* --- CAST SECTION --- */}
+      {show.credits?.cast && show.credits.cast.length > 0 && (
+        <div className="container mx-auto px-6 py-8 max-w-5xl border-t border-slate-200 dark:border-white/10 mt-8">
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Top Cast</h2>
+          
+          <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory scrollbar-hide">
+            {show.credits.cast.slice(0, 15).map((actor) => (
+              <div key={actor.id} className="min-w-[140px] w-[140px] flex-shrink-0 snap-start bg-white dark:bg-slate-800/80 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-white/5 transition-colors">
+                {actor.profile_path ? (
+                  <img src={getImageUrl(actor.profile_path, 'w185')} alt={actor.name} className="w-full h-[175px] object-cover" />
+                ) : (
+                  <div className="w-full h-[175px] bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-4xl">👤</div>
+                )}
+                <div className="p-3">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{actor.name}</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{actor.character}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main Trailer Modal Overlay */}
       {isTrailerOpen && trailer && (
@@ -421,5 +443,7 @@ export default function ShowDetailsPage() {
         </div>
       )}
     </div>
+  );
+}
   );
 }
