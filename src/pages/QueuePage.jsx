@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 export default function QueuePage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [watchlistIds, setWatchlistIds] = useState(new Set());
   
   // Navigation States
   const [activeTab, setActiveTab] = useState('queue'); // 'queue' or 'completed'
@@ -22,6 +23,15 @@ export default function QueuePage() {
       if (!session) {
         navigate('/auth');
         return;
+      }
+
+      // Fetch watchlist IDs so we know watchlist status for all items
+      const { data: wlData } = await supabase
+        .from('watchlist')
+        .select('movie_id')
+        .eq('user_id', session.user.id);
+      if (wlData) {
+        setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
       }
 
       // Dynamically select which table to fetch from based on the active tab
@@ -49,6 +59,15 @@ export default function QueuePage() {
     const type = item.media_type || 'movie';
     return type === contentType;
   });
+
+  const handleRemove = (removedId) => {
+    setItems(prev => prev.filter(i => String(i.media_id || i.movie_id) !== String(removedId)));
+    setWatchlistIds(prev => {
+      const next = new Set(prev);
+      next.delete(String(removedId));
+      return next;
+    });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] p-8 pt-32 transition-colors duration-500">
@@ -118,6 +137,7 @@ export default function QueuePage() {
               // The watchlist table uses 'movie_id', our new completed table uses 'media_id'. This handles both!
               const targetId = item.media_id || item.movie_id; 
               const type = item.media_type || 'movie';
+              const isInWatchlist = activeTab === 'queue' || watchlistIds.has(String(targetId));
               
               return (
                 <MovieCard 
@@ -127,6 +147,10 @@ export default function QueuePage() {
                   genre={activeTab === 'queue' ? 'In Queue' : 'Completed'} 
                   releaseYear={item.release_year}
                   posterUrl={getImageUrl(item.poster_path)} 
+                  posterPath={item.poster_path}
+                  mediaType={type}
+                  initialInWatchlist={isInWatchlist}
+                  onRemoved={handleRemove}
                   linkUrl={`/${type}/${targetId}`}
                 />
               );
