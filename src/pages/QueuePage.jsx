@@ -25,29 +25,34 @@ export default function QueuePage() {
         return;
       }
 
-      // Fetch watchlist IDs so we know watchlist status for all items
-      const { data: wlData } = await supabase
-        .from('watchlist')
-        .select('movie_id')
-        .eq('user_id', session.user.id);
-      if (wlData) {
-        setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
-      }
+      if (activeTab === 'queue') {
+        // Single query fetch for 'watchlist'
+        const { data, error } = await supabase
+          .from('watchlist')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
 
-      // Dynamically select which table to fetch from based on the active tab
-      const tableName = activeTab === 'queue' ? 'watchlist' : 'completed_items';
-
-      const { data, error } = await supabase
-        .from(tableName)
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-
-      if (!error && data) {
-        setItems(data);
+        if (!error && data) {
+          setItems(data);
+          setWatchlistIds(new Set(data.map(r => String(r.movie_id))));
+        } else {
+          setItems([]);
+          setWatchlistIds(new Set());
+        }
       } else {
-        setItems([]);
+        // Completed Vault tab: fetch completed items and watchlist IDs in parallel
+        const [completedRes, watchlistRes] = await Promise.all([
+          supabase.from('completed_items').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }),
+          supabase.from('watchlist').select('movie_id').eq('user_id', session.user.id)
+        ]);
+
+        if (completedRes.data) setItems(completedRes.data);
+        else setItems([]);
+
+        if (watchlistRes.data) setWatchlistIds(new Set(watchlistRes.data.map(r => String(r.movie_id))));
       }
+
       setLoading(false);
     }
 
