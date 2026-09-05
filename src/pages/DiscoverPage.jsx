@@ -22,9 +22,29 @@ export default function DiscoverPage() {
 
   // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
+  // Watchlist Filter State ('all' or 'not_in_watchlist')
+  const [watchlistFilter, setWatchlistFilter] = useState('all');
 
   // Infinite Scroll Sentinel Ref
   const sentinelRef = useRef(null);
+
+  // Callback to sync watchlist state dynamically when user adds/removes items
+  const handleWatchlistToggle = (id, added) => {
+    setWatchlistIds(prev => {
+      const next = new Set(prev);
+      if (added) {
+        next.add(id.toString());
+      } else {
+        next.delete(id.toString());
+      }
+      return next;
+    });
+  };
+
+  // Filter items based on watchlist selection
+  const displayItems = watchlistFilter === 'not_in_watchlist'
+    ? items.filter(item => !watchlistIds.has(item.id.toString()))
+    : items;
 
   // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
   useEffect(() => {
@@ -130,6 +150,10 @@ export default function DiscoverPage() {
     setPage(1);
   };
 
+  const handleWatchlistFilterChange = (e) => {
+    setWatchlistFilter(e.target.value);
+  };
+
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 1949 }, (_, i) => currentYear - i);
 
@@ -191,6 +215,16 @@ export default function DiscoverPage() {
               <option key={year} value={year}>{year}</option>
             ))}
           </select>
+
+          {/* Watchlist Filter Dropdown */}
+          <select 
+            value={watchlistFilter} 
+            onChange={handleWatchlistFilterChange}
+            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
+          >
+            <option value="all">All Content</option>
+            <option value="not_in_watchlist">Not in My Queue</option>
+          </select>
         </div>
         
         {loading ? (
@@ -199,16 +233,18 @@ export default function DiscoverPage() {
               <MovieCardSkeleton key={`skeleton-${index}`} />
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <div className="flex justify-center items-center h-64 bg-white dark:bg-slate-900/40 rounded-xl shadow-sm border border-slate-200 dark:border-white/10 transition-colors">
             <p className="text-xl font-medium text-slate-500 dark:text-slate-400">
-              No content found matching those filters.
+              {items.length > 0 
+                ? "All loaded items are already in your queue." 
+                : "No content found matching those filters."}
             </p>
           </div>
         ) : (
           <>
             <VirtualizedGrid
-              items={items}
+              items={displayItems}
               itemKey={(item, index) => `${item.id}-${index}`}
               renderItem={(item) => {
                 const title = item.title || item.name;
@@ -225,6 +261,7 @@ export default function DiscoverPage() {
                     posterPath={item.poster_path}
                     mediaType={contentType}
                     initialInWatchlist={watchlistIds.has(item.id.toString())}
+                    onWatchlistToggle={handleWatchlistToggle}
                     linkUrl={`/${contentType}/${item.id}`} 
                   />
                 );
