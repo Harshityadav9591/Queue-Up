@@ -4,8 +4,8 @@ import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 // Notice I added 'linkUrl' to the props here
-export default function MovieCard({ id, title, genre, releaseYear, posterUrl, linkUrl, mediaType = 'movie', posterPath, initialInWatchlist = false, onRemoved }) {
-  
+export default function MovieCard({ id, title, genre, releaseYear, posterUrl, linkUrl, mediaType = 'movie', posterPath, initialInWatchlist = false, onRemoved, onWatchlistToggle }) {
+
   // If linkUrl is provided (like from the Discover page), use it. Otherwise, default to movie.
   const destination = linkUrl ? linkUrl : `/movie/${id}`;
   const navigate = useNavigate();
@@ -46,6 +46,7 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
         setInWatchlist(false);
         toast.success(`"${title}" removed from your queue!`);
         if (onRemoved) onRemoved(id);
+        if (onWatchlistToggle) onWatchlistToggle(id, false);
       }
     } else {
       // Check first to prevent duplicates without needing a DB unique constraint
@@ -59,6 +60,7 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
       if (existing) {
         // Already exists — just sync local state silently
         setInWatchlist(true);
+        if (onWatchlistToggle) onWatchlistToggle(id, true);
       } else {
         const { error } = await supabase
           .from('watchlist')
@@ -75,6 +77,7 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
         } else {
           setInWatchlist(true);
           toast.success(`"${title}" added to your queue!`);
+          if (onWatchlistToggle) onWatchlistToggle(id, true);
         }
       }
     }
@@ -85,13 +88,13 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
   return (
     <Link to={destination} className="group relative block w-full h-full">
       <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm hover:shadow-xl dark:hover:shadow-[0_0_20px_rgba(0,240,255,0.15)] transform hover:-translate-y-2 transition-all duration-300 h-full flex flex-col">
-        
+
         {/* Poster Image */}
         <div className="relative aspect-[2/3] w-full overflow-hidden bg-slate-200 dark:bg-slate-800">
           {posterUrl ? (
-            <img 
-              src={posterUrl} 
-              alt={title} 
+            <img
+              src={posterUrl}
+              alt={title}
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             />
           ) : (
@@ -153,7 +156,7 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
             )}
           </button>
         </div>
-        
+
         {/* Card Content */}
         <div className="p-4 flex-grow flex flex-col justify-between">
           <div>

@@ -7,10 +7,20 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState('');
   const [session, setSession] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
+  });
   
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Keep state in sync with DOM on mount
+  useEffect(() => {
+    setIsDarkMode(document.documentElement.classList.contains('dark'));
+  }, []);
 
   // Close the mobile menu automatically when the route changes
   useEffect(() => {
@@ -30,8 +40,15 @@ export default function Navbar() {
   }, []);
 
   const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode);
-    document.documentElement.classList.toggle('dark');
+    const nextMode = !isDarkMode;
+    setIsDarkMode(nextMode);
+    if (nextMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
   };
 
   const handleSearch = (e) => {
@@ -49,7 +66,7 @@ export default function Navbar() {
         
         {/* Top bar for mobile layout (Logo + Hamburger) */}
         <div className="flex justify-between items-center w-full md:w-auto">
-          <Link to="/" className="flex items-center gap-3 z-50 relative">
+          <Link to={session ? "/discover" : "/"} className="flex items-center gap-3 z-50 relative">
             <img src="/logo.png" alt="Queue Up Logo" className="w-10 h-10 object-contain drop-shadow-md dark:mix-blend-lighten" />
             <span className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide transition-colors">Queue Up</span>
           </Link>
