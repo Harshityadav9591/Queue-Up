@@ -12,8 +12,48 @@ export async function getGenres(type = 'movie') {
   }
 }
 
+// Fetch languages dynamically or return popular languages fallback
+export const POPULAR_LANGUAGES = [
+  { iso_639_1: 'en', english_name: 'English' },
+  { iso_639_1: 'hi', english_name: 'Hindi' },
+  { iso_639_1: 'es', english_name: 'Spanish' },
+  { iso_639_1: 'fr', english_name: 'French' },
+  { iso_639_1: 'ja', english_name: 'Japanese' },
+  { iso_639_1: 'ko', english_name: 'Korean' },
+  { iso_639_1: 'de', english_name: 'German' },
+  { iso_639_1: 'it', english_name: 'Italian' },
+  { iso_639_1: 'zh', english_name: 'Chinese' },
+  { iso_639_1: 'ta', english_name: 'Tamil' },
+  { iso_639_1: 'te', english_name: 'Telugu' },
+  { iso_639_1: 'ml', english_name: 'Malayalam' },
+  { iso_639_1: 'kn', english_name: 'Kannada' },
+  { iso_639_1: 'mr', english_name: 'Marathi' },
+  { iso_639_1: 'pa', english_name: 'Punjabi' },
+  { iso_639_1: 'bn', english_name: 'Bengali' },
+  { iso_639_1: 'pt', english_name: 'Portuguese' },
+  { iso_639_1: 'ru', english_name: 'Russian' },
+  { iso_639_1: 'ar', english_name: 'Arabic' },
+  { iso_639_1: 'tr', english_name: 'Turkish' },
+];
+
+export async function getLanguages() {
+  try {
+    const res = await fetch(`${BASE_URL}/configuration/languages?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      return data
+        .filter(l => l.iso_639_1 && l.english_name)
+        .sort((a, b) => a.english_name.localeCompare(b.english_name));
+    }
+    return POPULAR_LANGUAGES;
+  } catch (error) {
+    console.error("Error fetching languages:", error);
+    return POPULAR_LANGUAGES;
+  }
+}
+
 // Fetch content dynamically (Movies or TV Shows/Anime)
-export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '') {
+export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '', language = '') {
   try {
     const yearParam = type === 'movie' ? 'primary_release_year' : 'first_air_date_year';
     
@@ -21,6 +61,7 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
 
     if (genre) url += `&with_genres=${genre}`;
     if (year) url += `&${yearParam}=${year}`;
+    if (language) url += `&with_original_language=${language}`;
 
     const res = await fetch(url);
     const data = await res.json();

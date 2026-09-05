@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { getDiscoverContent, getGenres, getImageUrl } from '../lib/tmdb';
+import { getDiscoverContent, getGenres, getLanguages, getImageUrl } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import VirtualizedGrid from '../components/ui/VirtualizedGrid';
@@ -19,6 +19,8 @@ export default function DiscoverPage() {
   const [genres, setGenres] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
+  const [languages, setLanguages] = useState([]);
+  const [selectedLanguage, setSelectedLanguage] = useState('');
 
   // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
@@ -46,7 +48,7 @@ export default function DiscoverPage() {
     ? items.filter(item => !watchlistIds.has(item.id.toString()))
     : items;
 
-  // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
+  // 1. Fetch Genres + Languages + user's watchlist IDs whenever contentType changes
   useEffect(() => {
     async function fetchGenresData() {
       const genreData = await getGenres(contentType);
@@ -54,6 +56,12 @@ export default function DiscoverPage() {
       // Reset filters when switching types
       setSelectedGenre('');
       setSelectedYear('');
+      setSelectedLanguage('');
+    }
+
+    async function fetchLanguagesData() {
+      const langData = await getLanguages();
+      setLanguages(langData);
     }
 
     async function fetchWatchlistData() {
@@ -70,10 +78,11 @@ export default function DiscoverPage() {
     }
 
     fetchGenresData();
+    fetchLanguagesData();
     fetchWatchlistData();
   }, [contentType]);
 
-  // 2. Fetch Content whenever page, genre, year, or contentType changes
+  // 2. Fetch Content whenever page, genre, year, language, or contentType changes
   useEffect(() => {
     let isCancelled = false;
 
@@ -85,7 +94,7 @@ export default function DiscoverPage() {
         setLoadingMore(true);
       }
 
-      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear);
+      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear, selectedLanguage);
       
       if (isCancelled) return;
 
@@ -112,7 +121,7 @@ export default function DiscoverPage() {
     return () => {
       isCancelled = true;
     };
-  }, [contentType, page, selectedGenre, selectedYear]);
+  }, [contentType, page, selectedGenre, selectedYear, selectedLanguage]);
 
   // 3. Infinite Scroll Observer
   useEffect(() => {
@@ -147,6 +156,11 @@ export default function DiscoverPage() {
 
   const handleYearChange = (e) => {
     setSelectedYear(e.target.value);
+    setPage(1);
+  };
+
+  const handleLanguageChange = (e) => {
+    setSelectedLanguage(e.target.value);
     setPage(1);
   };
 
@@ -213,6 +227,19 @@ export default function DiscoverPage() {
             <option value="">All Years</option>
             {years.map(year => (
               <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+
+          <select 
+            value={selectedLanguage} 
+            onChange={handleLanguageChange}
+            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
+          >
+            <option value="">All Languages</option>
+            {languages.map(lang => (
+              <option key={lang.iso_639_1} value={lang.iso_639_1}>
+                {lang.english_name || lang.name}
+              </option>
             ))}
           </select>
 
