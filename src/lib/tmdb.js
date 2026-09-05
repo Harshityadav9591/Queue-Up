@@ -59,13 +59,40 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
     
     let url = `${BASE_URL}/discover/${type}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&page=${page}`;
 
-    if (genre) url += `&with_genres=${genre}`;
-    if (year) url += `&${yearParam}=${year}`;
-    if (language) url += `&with_original_language=${language}`;
+    // Support multiselect for genres using TMDB pipe '|' for OR filtering
+    if (genre) {
+      const genreVal = Array.isArray(genre) ? genre.join('|') : String(genre).replace(/,/g, '|');
+      if (genreVal) url += `&with_genres=${encodeURIComponent(genreVal)}`;
+    }
+    
+    // Support multiselect for release years
+    if (year) {
+      const yearArr = (Array.isArray(year) ? year : String(year).split(',')).filter(Boolean);
+      if (yearArr.length === 1) {
+        url += `&${yearParam}=${encodeURIComponent(yearArr[0])}`;
+      } else if (yearArr.length > 1) {
+        const yearsNum = yearArr.map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
+        if (yearsNum.length > 0) {
+          const minYear = yearsNum[0];
+          const maxYear = yearsNum[yearsNum.length - 1];
+          if (type === 'movie') {
+            url += `&primary_release_date.gte=${minYear}-01-01&primary_release_date.lte=${maxYear}-12-31`;
+          } else {
+            url += `&first_air_date.gte=${minYear}-01-01&first_air_date.lte=${maxYear}-12-31`;
+          }
+        }
+      }
+    }
+    
+    // Support multiselect for original languages using TMDB pipe '|' for OR filtering
+    if (language) {
+      const langVal = Array.isArray(language) ? language.join('|') : String(language).replace(/,/g, '|');
+      if (langVal) url += `&with_original_language=${encodeURIComponent(langVal)}`;
+    }
 
     const res = await fetch(url);
     const data = await res.json();
-    return data.results;
+    return data.results || [];
   } catch (error) {
     console.error("Error fetching content:", error);
     return [];

@@ -4,16 +4,17 @@ import { getDiscoverContent, getGenres, getLanguages, getImageUrl } from '../lib
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import VirtualizedGrid from '../components/ui/VirtualizedGrid';
+import MultiSelect from '../components/ui/MultiSelect';
 import { supabase } from '../lib/supabase';
 
 export default function DiscoverPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Read filter values directly from URL search parameters (with sensible defaults)
+  // Read filter values directly from URL search parameters (multiselect arrays)
   const contentType = searchParams.get('type') || 'movie'; 
-  const selectedGenre = searchParams.get('genre') || '';
-  const selectedYear = searchParams.get('year') || '';
-  const selectedLanguage = searchParams.get('lang') || '';
+  const selectedGenre = searchParams.get('genre') ? searchParams.get('genre').split(',').filter(Boolean) : [];
+  const selectedYear = searchParams.get('year') ? searchParams.get('year').split(',').filter(Boolean) : [];
+  const selectedLanguage = searchParams.get('lang') ? searchParams.get('lang').split(',').filter(Boolean) : [];
   const watchlistFilter = searchParams.get('watchlist') || 'all';
 
   const [items, setItems] = useState([]);
@@ -45,9 +46,14 @@ export default function DiscoverPage() {
 
     const newParams = {};
     if (next.type && next.type !== 'movie') newParams.type = next.type;
-    if (next.genre) newParams.genre = next.genre;
-    if (next.year) newParams.year = next.year;
-    if (next.lang) newParams.lang = next.lang;
+
+    const genreStr = Array.isArray(next.genre) ? next.genre.filter(Boolean).join(',') : (next.genre || '');
+    const yearStr = Array.isArray(next.year) ? next.year.filter(Boolean).join(',') : (next.year || '');
+    const langStr = Array.isArray(next.lang) ? next.lang.filter(Boolean).join(',') : (next.lang || '');
+
+    if (genreStr) newParams.genre = genreStr;
+    if (yearStr) newParams.year = yearStr;
+    if (langStr) newParams.lang = langStr;
     if (next.watchlist && next.watchlist !== 'all') newParams.watchlist = next.watchlist;
 
     setSearchParams(newParams, { replace: true });
@@ -155,7 +161,7 @@ export default function DiscoverPage() {
     return () => {
       isCancelled = true;
     };
-  }, [contentType, page, selectedGenre, selectedYear, selectedLanguage]);
+  }, [contentType, page, searchParamsString]);
 
   // 3. Infinite Scroll Observer
   useEffect(() => {
@@ -198,7 +204,7 @@ export default function DiscoverPage() {
           {/* Movies vs TV Shows Toggle Switch */}
           <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
             <button
-              onClick={() => updateFilters({ type: 'movie', genre: '', year: '', lang: '' })}
+              onClick={() => updateFilters({ type: 'movie', genre: [], year: [], lang: [] })}
               className={`px-6 py-2 rounded-md font-bold transition-all ${
                 contentType === 'movie' 
                   ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
@@ -208,7 +214,7 @@ export default function DiscoverPage() {
               Movies
             </button>
             <button
-              onClick={() => updateFilters({ type: 'tv', genre: '', year: '', lang: '' })}
+              onClick={() => updateFilters({ type: 'tv', genre: [], year: [], lang: [] })}
               className={`px-6 py-2 rounded-md font-bold transition-all ${
                 contentType === 'tv' 
                   ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
@@ -221,47 +227,36 @@ export default function DiscoverPage() {
         </div>
 
         {/* Filter Bar */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <select 
-            value={selectedGenre} 
-            onChange={(e) => updateFilters({ genre: e.target.value })}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="">All Genres</option>
-            {genres.map(g => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center flex-wrap z-20 relative">
+          <MultiSelect
+            label="Genres"
+            placeholder="All Genres"
+            options={genres.map(g => ({ value: String(g.id), label: g.name }))}
+            selected={selectedGenre}
+            onChange={(newGenres) => updateFilters({ genre: newGenres })}
+          />
 
-          <select 
-            value={selectedYear} 
-            onChange={(e) => updateFilters({ year: e.target.value })}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="">All Years</option>
-            {years.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
+          <MultiSelect
+            label="Years"
+            placeholder="All Years"
+            options={years.map(year => ({ value: String(year), label: String(year) }))}
+            selected={selectedYear}
+            onChange={(newYears) => updateFilters({ year: newYears })}
+          />
 
-          <select 
-            value={selectedLanguage} 
-            onChange={(e) => updateFilters({ lang: e.target.value })}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="">All Languages</option>
-            {languages.map(lang => (
-              <option key={lang.iso_639_1} value={lang.iso_639_1}>
-                {lang.english_name || lang.name}
-              </option>
-            ))}
-          </select>
+          <MultiSelect
+            label="Languages"
+            placeholder="All Languages"
+            options={languages.map(lang => ({ value: lang.iso_639_1, label: lang.english_name || lang.name }))}
+            selected={selectedLanguage}
+            onChange={(newLangs) => updateFilters({ lang: newLangs })}
+          />
 
           {/* Watchlist Filter Dropdown */}
           <select 
             value={watchlistFilter} 
             onChange={(e) => updateFilters({ watchlist: e.target.value })}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
+            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
           >
             <option value="all">All Content</option>
             <option value="not_in_watchlist">Not in My Queue</option>
