@@ -49,7 +49,7 @@ export default function Navbar() {
         
         {/* Top bar for mobile layout (Logo + Hamburger) */}
         <div className="flex justify-between items-center w-full md:w-auto">
-          <Link to="/" className="flex items-center gap-3 z-50 relative">
+          <Link to={session ? "/discover" : "/"} className="flex items-center gap-3 z-50 relative">
             <img src="/logo.png" alt="Queue Up Logo" className="w-10 h-10 object-contain drop-shadow-md dark:mix-blend-lighten" />
             <span className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide transition-colors">Queue Up</span>
           </Link>

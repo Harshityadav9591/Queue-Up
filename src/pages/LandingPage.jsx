@@ -1,9 +1,29 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import Button from '../components/ui/Button';
 import Footer from '../components/layout/Footer';
 
 export default function LandingPage() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        navigate('/discover', { replace: true });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        navigate('/discover', { replace: true });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
   return (
     // Main wrapper switches from soft slate in light mode to deep midnight in dark mode
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] text-slate-800 dark:text-slate-300 font-sans relative overflow-hidden transition-colors duration-500">
