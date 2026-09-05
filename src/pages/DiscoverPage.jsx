@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { getDiscoverContent, getGenres, getImageUrl } from '../lib/tmdb'; // Note the updated import
+import { useEffect, useState, useRef } from 'react';
+import { getDiscoverContent, getGenres, getImageUrl } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
-import Button from '../components/ui/Button';
+import VirtualizedGrid from '../components/ui/VirtualizedGrid';
 import { supabase } from '../lib/supabase';
 
 export default function DiscoverPage() {
@@ -15,12 +15,16 @@ export default function DiscoverPage() {
   // Pagination & Filter State
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [genres, setGenres] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
 
   // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
+
+  // Infinite Scroll Sentinel Ref
+  const sentinelRef = useRef(null);
 
   // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
   useEffect(() => {
@@ -51,16 +55,32 @@ export default function DiscoverPage() {
 
   // 2. Fetch Content whenever page, genre, year, or contentType changes
   useEffect(() => {
+    let isCancelled = false;
+
     async function fetchResults() {
-      if (page === 1) setLoading(true);
-      else setLoadingMore(true);
+      if (page === 1) {
+        setLoading(true);
+        setHasMore(true);
+      } else {
+        setLoadingMore(true);
+      }
 
       const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear);
       
-      if (page === 1) {
-        setItems(data || []);
+      if (isCancelled) return;
+
+      const newResults = data || [];
+      
+      if (newResults.length < 20) {
+        setHasMore(false);
       } else {
-        setItems(prevItems => [...prevItems, ...(data || [])]);
+        setHasMore(true);
+      }
+
+      if (page === 1) {
+        setItems(newResults);
+      } else {
+        setItems(prevItems => [...prevItems, ...newResults]);
       }
       
       setLoading(false);
@@ -68,11 +88,38 @@ export default function DiscoverPage() {
     }
     
     fetchResults();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [contentType, page, selectedGenre, selectedYear]);
 
-  // Handlers
-  const loadMore = () => setPage(p => p + 1);
+  // 3. Infinite Scroll Observer
+  useEffect(() => {
+    if (loading || loadingMore || !hasMore) return;
 
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setPage(prevPage => prevPage + 1);
+        }
+      },
+      { rootMargin: '400px' }
+    );
+
+    const currentSentinel = sentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
+    }
+
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+    };
+  }, [loading, loadingMore, hasMore]);
+
+  // Handlers
   const handleGenreChange = (e) => {
     setSelectedGenre(e.target.value);
     setPage(1);
@@ -160,16 +207,16 @@ export default function DiscoverPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-              {items.map((item, index) => {
-                // TV Shows use 'name' and 'first_air_date', Movies use 'title' and 'release_date'
+            <VirtualizedGrid
+              items={items}
+              itemKey={(item, index) => `${item.id}-${index}`}
+              renderItem={(item) => {
                 const title = item.title || item.name;
                 const releaseDate = item.release_date || item.first_air_date;
                 const year = releaseDate ? releaseDate.substring(0, 4) : 'N/A';
-                
+
                 return (
                   <MovieCard 
-                    key={`${item.id}-${index}`}
                     id={item.id} 
                     title={title} 
                     genre={contentType === 'tv' ? 'TV Show' : 'Movie'} 
@@ -178,25 +225,32 @@ export default function DiscoverPage() {
                     posterPath={item.poster_path}
                     mediaType={contentType}
                     initialInWatchlist={watchlistIds.has(item.id.toString())}
-                    // Important: Passing the type so your details page knows what to fetch later
                     linkUrl={`/${contentType}/${item.id}`} 
                   />
                 );
-              })}
-            </div>
+              }}
+            />
 
-            <div className="flex justify-center mt-12 pb-8">
-              <Button 
-                onClick={loadMore} 
-                disabled={loadingMore}
-                className="bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:bg-blue-700 dark:hover:bg-[#00c0cc] px-10 py-3 font-bold shadow-md transition-all"
-              >
-                {loadingMore ? 'Loading...' : 'Load More'}
-              </Button>
+            {/* Bottom Sentinel for Infinite Scroll */}
+            <div ref={sentinelRef} className="h-16 my-8 flex justify-center items-center">
+              {loadingMore && (
+                <div className="flex items-center gap-3 text-blue-600 dark:text-[#00f0ff] font-bold">
+                  <svg className="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  <span>Loading more content...</span>
+                </div>
+              )}
+              {!hasMore && items.length > 0 && (
+                <p className="text-slate-500 dark:text-slate-400 font-medium">
+                  🎉 You've reached the end of the list!
+                </p>
+              )}
             </div>
           </>
         )}
       </div>
     </div>
   );
-}
+}
