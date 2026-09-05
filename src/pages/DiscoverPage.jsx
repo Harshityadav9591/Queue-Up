@@ -298,6 +298,8 @@ export default function DiscoverPage() {
                     title={title} 
                     genre={contentType === 'tv' ? 'TV Show' : 'Movie'} 
                     releaseYear={year} 
+                    rating={item.vote_average}
+                    voteCount={item.vote_count}
                     posterUrl={getImageUrl(item.poster_path)}
                     posterPath={item.poster_path}
                     mediaType={contentType}
