@@ -4,7 +4,21 @@ import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 // Notice I added 'linkUrl' to the props here
-export default function MovieCard({ id, title, genre, releaseYear, posterUrl, linkUrl, mediaType = 'movie', posterPath, initialInWatchlist = false, onRemoved, onWatchlistToggle }) {
+export default function MovieCard({
+  id,
+  title,
+  genre,
+  releaseYear,
+  rating,
+  voteCount,
+  posterUrl,
+  linkUrl,
+  mediaType = 'movie',
+  posterPath,
+  initialInWatchlist = false,
+  onRemoved,
+  onWatchlistToggle
+}) {
 
   // If linkUrl is provided (like from the Discover page), use it. Otherwise, default to movie.
   const destination = linkUrl ? linkUrl : `/movie/${id}`;
@@ -85,6 +99,9 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
     setIsAdding(false);
   };
 
+  const displayTitle = releaseYear && releaseYear !== 'N/A' ? `${title} (${releaseYear})` : title;
+  const typeLabel = genre || (mediaType === 'tv' ? 'TV Show' : 'Movie');
+
   return (
     <Link to={destination} className="group relative block w-full h-full">
       <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm hover:shadow-xl dark:hover:shadow-[0_0_20px_rgba(0,240,255,0.15)] transform hover:-translate-y-2 transition-all duration-300 h-full flex flex-col">
@@ -160,16 +177,30 @@ export default function MovieCard({ id, title, genre, releaseYear, posterUrl, li
         {/* Card Content */}
         <div className="p-4 flex-grow flex flex-col justify-between">
           <div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate transition-colors" title={title}>
-              {title}
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate transition-colors" title={displayTitle}>
+              {displayTitle}
             </h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 transition-colors">
-              {genre}
-            </p>
+
+            <div className="flex items-center text-sm font-semibold text-slate-700 dark:text-slate-300 mt-2 transition-colors flex-wrap gap-x-2 gap-y-1">
+              <span className="font-bold text-slate-800 dark:text-slate-200">{typeLabel}</span>
+              {rating !== undefined && rating !== null && Number(rating) > 0 && (
+                <>
+                  <span className="text-slate-400 dark:text-slate-500">•</span>
+                  <div className="flex items-center gap-1">
+                    <svg className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                    <span>
+                      <strong className="font-bold text-slate-900 dark:text-white">{Number(rating).toFixed(1)}</strong>
+                      {voteCount !== undefined && voteCount !== null ? (
+                        <span className="text-slate-500 dark:text-slate-400 font-normal">{` (${Number(voteCount).toLocaleString()})`}</span>
+                      ) : ''}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 mt-3 transition-colors">
-            {releaseYear}
-          </p>
         </div>
 
       </div>

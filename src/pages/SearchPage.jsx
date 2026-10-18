@@ -93,6 +93,8 @@ export default function SearchPage() {
                     title={title} 
                     genre={isTV ? 'TV Show' : 'Movie'} 
                     releaseYear={year} 
+                    rating={item.vote_average}
+                    voteCount={item.vote_count}
                     posterUrl={getImageUrl(item.poster_path)} 
                     posterPath={item.poster_path}
                     mediaType={mediaType}

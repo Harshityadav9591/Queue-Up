@@ -1,32 +1,78 @@
 import { useEffect, useState, useRef } from 'react';
-import { getDiscoverContent, getGenres, getImageUrl } from '../lib/tmdb';
+import { useSearchParams } from 'react-router-dom';
+import { getDiscoverContent, getGenres, getLanguages, getImageUrl } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import VirtualizedGrid from '../components/ui/VirtualizedGrid';
+import MultiSelect from '../components/ui/MultiSelect';
 import { supabase } from '../lib/supabase';
 
 export default function DiscoverPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read filter values directly from URL search parameters (multiselect arrays)
+  const contentType = searchParams.get('type') || 'movie'; 
+  const selectedGenre = searchParams.get('genre') ? searchParams.get('genre').split(',').filter(Boolean) : [];
+  const selectedYear = searchParams.get('year') ? searchParams.get('year').split(',').filter(Boolean) : [];
+  const selectedLanguage = searchParams.get('lang') ? searchParams.get('lang').split(',').filter(Boolean) : [];
+  const watchlistFilter = searchParams.get('watchlist') || 'all';
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // New State for Content Type ('movie' or 'tv')
-  const [contentType, setContentType] = useState('movie'); 
 
-  // Pagination & Filter State
+  // Pagination & Metadata State
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [genres, setGenres] = useState([]);
-  const [selectedGenre, setSelectedGenre] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
+  const [languages, setLanguages] = useState([]);
 
   // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
-  // Watchlist Filter State ('all' or 'not_in_watchlist')
-  const [watchlistFilter, setWatchlistFilter] = useState('all');
 
   // Infinite Scroll Sentinel Ref
   const sentinelRef = useRef(null);
+
+  // Helper to update URL search parameters
+  const updateFilters = (updated) => {
+    const next = {
+      type: contentType,
+      genre: selectedGenre,
+      year: selectedYear,
+      lang: selectedLanguage,
+      watchlist: watchlistFilter,
+      ...updated,
+    };
+
+    const newParams = {};
+    if (next.type && next.type !== 'movie') newParams.type = next.type;
+
+    const genreStr = Array.isArray(next.genre) ? next.genre.filter(Boolean).join(',') : (next.genre || '');
+    const yearStr = Array.isArray(next.year) ? next.year.filter(Boolean).join(',') : (next.year || '');
+    const langStr = Array.isArray(next.lang) ? next.lang.filter(Boolean).join(',') : (next.lang || '');
+
+    if (genreStr) newParams.genre = genreStr;
+    if (yearStr) newParams.year = yearStr;
+    if (langStr) newParams.lang = langStr;
+    if (next.watchlist && next.watchlist !== 'all') newParams.watchlist = next.watchlist;
+
+    setSearchParams(newParams, { replace: true });
+  };
+
+  // Reset pagination page to 1 whenever URL search params change
+  const searchParamsString = searchParams.toString();
+  const prevParamsRef = useRef(searchParamsString);
+  useEffect(() => {
+    if (prevParamsRef.current !== searchParamsString) {
+      prevParamsRef.current = searchParamsString;
+      setPage(1);
+    }
+  }, [searchParamsString]);
+
+  // Always scroll to top when Discover page mounts or filters change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [searchParamsString]);
 
   // Callback to sync watchlist state dynamically when user adds/removes items
   const handleWatchlistToggle = (id, added) => {
@@ -46,14 +92,16 @@ export default function DiscoverPage() {
     ? items.filter(item => !watchlistIds.has(item.id.toString()))
     : items;
 
-  // 1. Fetch Genres + user's watchlist IDs whenever contentType changes
+  // 1. Fetch Genres + Languages + user's watchlist IDs whenever contentType changes
   useEffect(() => {
     async function fetchGenresData() {
       const genreData = await getGenres(contentType);
       setGenres(genreData);
-      // Reset filters when switching types
-      setSelectedGenre('');
-      setSelectedYear('');
+    }
+
+    async function fetchLanguagesData() {
+      const langData = await getLanguages();
+      setLanguages(langData);
     }
 
     async function fetchWatchlistData() {
@@ -70,10 +118,11 @@ export default function DiscoverPage() {
     }
 
     fetchGenresData();
+    fetchLanguagesData();
     fetchWatchlistData();
   }, [contentType]);
 
-  // 2. Fetch Content whenever page, genre, year, or contentType changes
+  // 2. Fetch Content whenever page, genre, year, language, or contentType changes
   useEffect(() => {
     let isCancelled = false;
 
@@ -85,7 +134,7 @@ export default function DiscoverPage() {
         setLoadingMore(true);
       }
 
-      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear);
+      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear, selectedLanguage);
       
       if (isCancelled) return;
 
@@ -112,7 +161,7 @@ export default function DiscoverPage() {
     return () => {
       isCancelled = true;
     };
-  }, [contentType, page, selectedGenre, selectedYear]);
+  }, [contentType, page, searchParamsString]);
 
   // 3. Infinite Scroll Observer
   useEffect(() => {
@@ -139,21 +188,6 @@ export default function DiscoverPage() {
     };
   }, [loading, loadingMore, hasMore]);
 
-  // Handlers
-  const handleGenreChange = (e) => {
-    setSelectedGenre(e.target.value);
-    setPage(1);
-  };
-
-  const handleYearChange = (e) => {
-    setSelectedYear(e.target.value);
-    setPage(1);
-  };
-
-  const handleWatchlistFilterChange = (e) => {
-    setWatchlistFilter(e.target.value);
-  };
-
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 1949 }, (_, i) => currentYear - i);
 
@@ -170,7 +204,7 @@ export default function DiscoverPage() {
           {/* Movies vs TV Shows Toggle Switch */}
           <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
             <button
-              onClick={() => { setContentType('movie'); setPage(1); }}
+              onClick={() => updateFilters({ type: 'movie', genre: [], year: [], lang: [] })}
               className={`px-6 py-2 rounded-md font-bold transition-all ${
                 contentType === 'movie' 
                   ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
@@ -180,7 +214,7 @@ export default function DiscoverPage() {
               Movies
             </button>
             <button
-              onClick={() => { setContentType('tv'); setPage(1); }}
+              onClick={() => updateFilters({ type: 'tv', genre: [], year: [], lang: [] })}
               className={`px-6 py-2 rounded-md font-bold transition-all ${
                 contentType === 'tv' 
                   ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
@@ -193,34 +227,36 @@ export default function DiscoverPage() {
         </div>
 
         {/* Filter Bar */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <select 
-            value={selectedGenre} 
-            onChange={handleGenreChange}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="">All Genres</option>
-            {genres.map(g => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center flex-wrap z-20 relative">
+          <MultiSelect
+            label="Genres"
+            placeholder="All Genres"
+            options={genres.map(g => ({ value: String(g.id), label: g.name }))}
+            selected={selectedGenre}
+            onChange={(newGenres) => updateFilters({ genre: newGenres })}
+          />
 
-          <select 
-            value={selectedYear} 
-            onChange={handleYearChange}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="">All Years</option>
-            {years.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
+          <MultiSelect
+            label="Years"
+            placeholder="All Years"
+            options={years.map(year => ({ value: String(year), label: String(year) }))}
+            selected={selectedYear}
+            onChange={(newYears) => updateFilters({ year: newYears })}
+          />
+
+          <MultiSelect
+            label="Languages"
+            placeholder="All Languages"
+            options={languages.map(lang => ({ value: lang.iso_639_1, label: lang.english_name || lang.name }))}
+            selected={selectedLanguage}
+            onChange={(newLangs) => updateFilters({ lang: newLangs })}
+          />
 
           {/* Watchlist Filter Dropdown */}
           <select 
             value={watchlistFilter} 
-            onChange={handleWatchlistFilterChange}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
+            onChange={(e) => updateFilters({ watchlist: e.target.value })}
+            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
           >
             <option value="all">All Content</option>
             <option value="not_in_watchlist">Not in My Queue</option>
@@ -257,6 +293,8 @@ export default function DiscoverPage() {
                     title={title} 
                     genre={contentType === 'tv' ? 'TV Show' : 'Movie'} 
                     releaseYear={year} 
+                    rating={item.vote_average}
+                    voteCount={item.vote_count}
                     posterUrl={getImageUrl(item.poster_path)}
                     posterPath={item.poster_path}
                     mediaType={contentType}
