@@ -6,6 +6,56 @@ import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import Button from '../components/ui/Button';
 import { supabase } from '../lib/supabase';
 
+const SORT_OPTIONS = [
+  { value: 'relevance', label: 'Best match' },
+  { value: 'rating_desc', label: 'Rating (high–low)' },
+  { value: 'rating_asc', label: 'Rating (low–high)' },
+  { value: 'year_desc', label: 'Year (newest)' },
+  { value: 'year_asc', label: 'Year (oldest)' },
+  { value: 'name_asc', label: 'Name (A–Z)' },
+  { value: 'name_desc', label: 'Name (Z–A)' },
+];
+
+// Watchlist membership is tracked per type so a movie and a show with the same TMDB id never collide
+const wlKey = (type, id) => `${type}-${id}`;
+
+const getTitle = (item) => (item.media_type === 'tv' ? item.name : item.title) || '';
+
+const getYear = (item) => {
+  const date = item.media_type === 'tv' ? item.first_air_date : item.release_date;
+  return date ? parseInt(date.substring(0, 4), 10) : NaN;
+};
+
+// TMDB's multi-search has no sort option, so this sorts the results loaded so far.
+// Items with a missing year, or too few votes to have a meaningful rating, always sink to the bottom.
+function sortResults(list, sortBy) {
+  if (sortBy === 'relevance') return list;
+
+  const [key, dir] = sortBy.split('_');
+  const mult = dir === 'asc' ? 1 : -1;
+  const arr = [...list];
+
+  if (key === 'name') {
+    return arr.sort((a, b) => mult * getTitle(a).localeCompare(getTitle(b), undefined, { sensitivity: 'base' }));
+  }
+
+  const getVal = (item) => {
+    if (key === 'year') return getYear(item);
+    return item.vote_count >= 10 ? Number(item.vote_average) : NaN;
+  };
+
+  return arr.sort((a, b) => {
+    const av = getVal(a);
+    const bv = getVal(b);
+    const aMissing = Number.isNaN(av);
+    const bMissing = Number.isNaN(bv);
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    return mult * (av - bv);
+  });
+}
+
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
   const query = searchParams.get('q');
@@ -15,6 +65,7 @@ export default function SearchPage() {
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [watchlistIds, setWatchlistIds] = useState(new Set());
+  const [sortBy, setSortBy] = useState('relevance');
 
   useEffect(() => {
     async function fetchWatchlist() {
@@ -22,10 +73,10 @@ export default function SearchPage() {
       if (session) {
         const { data: wlData } = await supabase
           .from('watchlist')
-          .select('movie_id')
+          .select('movie_id, media_type')
           .eq('user_id', session.user.id);
         if (wlData) {
-          setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
+          setWatchlistIds(new Set(wlData.map(r => wlKey(r.media_type || 'movie', r.movie_id))));
         }
       }
     }
@@ -50,18 +101,47 @@ export default function SearchPage() {
     setLoadingMore(true);
     const nextPage = page + 1;
     const data = await searchContent(query, nextPage);
-    setResults(prev => [...prev, ...data]);
+    // Skip anything already shown, so card keys stay unique
+    setResults(prev => {
+      const seen = new Set(prev.map(r => wlKey(r.media_type, r.id)));
+      return [...prev, ...data.filter(r => !seen.has(wlKey(r.media_type, r.id)))];
+    });
     setPage(nextPage);
     setLoadingMore(false);
   };
 
+  // Keep the watchlist lookup in sync when a card's quick-add button is used
+  const handleWatchlistToggle = (id, added, type = 'movie') => {
+    setWatchlistIds(prev => {
+      const next = new Set(prev);
+      if (added) next.add(wlKey(type, id));
+      else next.delete(wlKey(type, id));
+      return next;
+    });
+  };
+
+  const sortedResults = sortResults(results, sortBy);
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] p-8 pt-32 transition-colors duration-500">
       <div className="container mx-auto">
-        <div className="mb-10 border-b border-slate-200 dark:border-white/10 pb-6">
+        <div className="mb-10 border-b border-slate-200 dark:border-white/10 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white transition-colors">
             Search Results for <span className="text-blue-600 dark:text-[#00f0ff]">"{query}"</span>
           </h1>
+
+          {!loading && results.length > 0 && (
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort results"
+              className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors w-fit"
+            >
+              {SORT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          )}
         </div>
         
         {loading ? (
@@ -79,7 +159,7 @@ export default function SearchPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-              {results.map((item, index) => {
+              {sortedResults.map((item) => {
                 const isTV = item.media_type === 'tv';
                 const mediaType = isTV ? 'tv' : 'movie';
                 const title = isTV ? item.name : item.title;
@@ -88,7 +168,8 @@ export default function SearchPage() {
                 
                 return (
                   <MovieCard 
-                    key={`${item.id}-${index}`}
+                    // Stable key (not the array index), so cards keep their state when the sort order changes
+                    key={wlKey(mediaType, item.id)}
                     id={item.id} 
                     title={title} 
                     genre={isTV ? 'TV Show' : 'Movie'} 
@@ -98,7 +179,8 @@ export default function SearchPage() {
                     posterUrl={getImageUrl(item.poster_path)} 
                     posterPath={item.poster_path}
                     mediaType={mediaType}
-                    initialInWatchlist={watchlistIds.has(String(item.id))}
+                    initialInWatchlist={watchlistIds.has(wlKey(mediaType, item.id))}
+                    onWatchlistToggle={handleWatchlistToggle}
                     linkUrl={isTV ? `/tv/${item.id}` : `/movie/${item.id}`} 
                   />
                 );

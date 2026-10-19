@@ -47,11 +47,12 @@ export default function MovieCard({
     setIsAdding(true);
 
     if (inWatchlist) {
-      // Remove from watchlist
+      // Remove from watchlist (scoped by media_type so a movie and a show with the same id never collide)
       const { error } = await supabase
         .from('watchlist')
         .delete()
         .eq('movie_id', id.toString())
+        .eq('media_type', mediaType)
         .eq('user_id', session.user.id);
 
       if (error) {
@@ -59,23 +60,25 @@ export default function MovieCard({
       } else {
         setInWatchlist(false);
         toast.success(`"${title}" removed from your queue!`);
-        if (onRemoved) onRemoved(id);
-        if (onWatchlistToggle) onWatchlistToggle(id, false);
+        if (onRemoved) onRemoved(id, mediaType);
+        if (onWatchlistToggle) onWatchlistToggle(id, false, mediaType);
       }
     } else {
-      // Check first to prevent duplicates without needing a DB unique constraint
+      // Check first so we can sync state silently if the item is already there
       const { data: existing } = await supabase
         .from('watchlist')
         .select('id')
         .eq('movie_id', id.toString())
+        .eq('media_type', mediaType)
         .eq('user_id', session.user.id)
         .maybeSingle();
 
       if (existing) {
-        // Already exists — just sync local state silently
+        // Already exists: just sync local state silently
         setInWatchlist(true);
-        if (onWatchlistToggle) onWatchlistToggle(id, true);
+        if (onWatchlistToggle) onWatchlistToggle(id, true, mediaType);
       } else {
+        const yearStr = String(releaseYear ?? '');
         const { error } = await supabase
           .from('watchlist')
           .insert([{
@@ -84,6 +87,8 @@ export default function MovieCard({
             title: title,
             poster_path: posterPath || null,
             media_type: mediaType,
+            release_year: /^\d{4}$/.test(yearStr) ? yearStr : null,
+            vote_average: Number(rating) > 0 ? Number(rating) : null,
           }]);
 
         if (error) {
@@ -91,7 +96,7 @@ export default function MovieCard({
         } else {
           setInWatchlist(true);
           toast.success(`"${title}" added to your queue!`);
-          if (onWatchlistToggle) onWatchlistToggle(id, true);
+          if (onWatchlistToggle) onWatchlistToggle(id, true, mediaType);
         }
       }
     }

@@ -7,6 +7,17 @@ import VirtualizedGrid from '../components/ui/VirtualizedGrid';
 import MultiSelect from '../components/ui/MultiSelect';
 import { supabase } from '../lib/supabase';
 
+const SORT_OPTIONS = [
+  { value: 'popularity', label: 'Most popular' },
+  { value: 'rating_desc', label: 'Rating (high–low)' },
+  { value: 'rating_asc', label: 'Rating (low–high)' },
+  { value: 'year_desc', label: 'Year (newest)' },
+  { value: 'year_asc', label: 'Year (oldest)' },
+  { value: 'name_asc', label: 'Name (A–Z)' },
+  { value: 'name_desc', label: 'Name (Z–A)' },
+];
+const SORT_VALUES = SORT_OPTIONS.map(o => o.value);
+
 export default function DiscoverPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -16,6 +27,8 @@ export default function DiscoverPage() {
   const selectedYear = searchParams.get('year') ? searchParams.get('year').split(',').filter(Boolean) : [];
   const selectedLanguage = searchParams.get('lang') ? searchParams.get('lang').split(',').filter(Boolean) : [];
   const watchlistFilter = searchParams.get('watchlist') || 'all';
+  const rawSort = searchParams.get('sort');
+  const sortBy = SORT_VALUES.includes(rawSort) ? rawSort : 'popularity';
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +40,7 @@ export default function DiscoverPage() {
   const [genres, setGenres] = useState([]);
   const [languages, setLanguages] = useState([]);
 
-  // Pre-fetched watchlist IDs for the current user (avoids per-card DB queries)
+  // Pre-fetched watchlist IDs for the current user and current content type (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
 
   // Infinite Scroll Sentinel Ref
@@ -41,6 +54,7 @@ export default function DiscoverPage() {
       year: selectedYear,
       lang: selectedLanguage,
       watchlist: watchlistFilter,
+      sort: sortBy,
       ...updated,
     };
 
@@ -55,6 +69,7 @@ export default function DiscoverPage() {
     if (yearStr) newParams.year = yearStr;
     if (langStr) newParams.lang = langStr;
     if (next.watchlist && next.watchlist !== 'all') newParams.watchlist = next.watchlist;
+    if (next.sort && next.sort !== 'popularity') newParams.sort = next.sort;
 
     setSearchParams(newParams, { replace: true });
   };
@@ -109,10 +124,15 @@ export default function DiscoverPage() {
       if (session) {
         const { data: wlData } = await supabase
           .from('watchlist')
-          .select('movie_id')
+          .select('movie_id, media_type')
           .eq('user_id', session.user.id);
         if (wlData) {
-          setWatchlistIds(new Set(wlData.map(r => String(r.movie_id))));
+          // Only keep entries of the type being browsed, so a movie and a show with the same TMDB id never collide
+          setWatchlistIds(new Set(
+            wlData
+              .filter(r => (r.media_type || 'movie') === contentType)
+              .map(r => String(r.movie_id))
+          ));
         }
       }
     }
@@ -122,7 +142,7 @@ export default function DiscoverPage() {
     fetchWatchlistData();
   }, [contentType]);
 
-  // 2. Fetch Content whenever page, genre, year, language, or contentType changes
+  // 2. Fetch Content whenever page, genre, year, language, sort, or contentType changes
   useEffect(() => {
     let isCancelled = false;
 
@@ -134,7 +154,7 @@ export default function DiscoverPage() {
         setLoadingMore(true);
       }
 
-      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear, selectedLanguage);
+      const data = await getDiscoverContent(contentType, page, selectedGenre, selectedYear, selectedLanguage, sortBy);
       
       if (isCancelled) return;
 
@@ -261,6 +281,18 @@ export default function DiscoverPage() {
             <option value="all">All Content</option>
             <option value="not_in_watchlist">Not in My Queue</option>
           </select>
+
+          {/* Sort Dropdown (sorted by TMDB across all results) */}
+          <select
+            value={sortBy}
+            onChange={(e) => updateFilters({ sort: e.target.value })}
+            aria-label="Sort results"
+            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
         
         {loading ? (
@@ -328,4 +360,4 @@ export default function DiscoverPage() {
       </div>
     </div>
   );
-}
+}

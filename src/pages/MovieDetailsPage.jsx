@@ -4,60 +4,73 @@ import { getMovieDetails, getImageUrl } from '../lib/tmdb';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
+// Postgres unique-violation: the row is already there, which is fine for our purposes
+const isOk = (error) => !error || error.code === '23505';
+
 export default function MovieDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [movie, setMovie] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+
   // Watchlist State
   const [isInWatchlist, setIsInWatchlist] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
-  
+
   // Watched State
   const [isWatched, setIsWatched] = useState(false);
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
-  
+
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchDetailsAndStatus() {
       setLoading(true);
+      // Reset per-movie state so navigating from one movie to another (e.g. via search) never shows stale status
+      setIsInWatchlist(false);
+      setIsWatched(false);
+
       const data = await getMovieDetails(id);
-      
-      
+      if (cancelled) return;
+
       setMovie(data);
 
       if (data) {
         const { data: { session } } = await supabase.auth.getSession();
-        
+
         if (session) {
-          // Check Watchlist
-          const { data: watchlistItem } = await supabase
-            .from('watchlist')
-            .select('id')
-            .eq('movie_id', data.id.toString())
-            .eq('user_id', session.user.id)
-            .maybeSingle();
+          const [watchlistRes, watchedRes] = await Promise.all([
+            // Check Watchlist
+            supabase
+              .from('watchlist')
+              .select('id')
+              .eq('movie_id', data.id.toString())
+              .eq('media_type', 'movie')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
+            // Check Watched History
+            supabase
+              .from('watched_movies')
+              .select('id')
+              .eq('movie_id', data.id.toString())
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
+          ]);
+          if (cancelled) return;
 
-          if (watchlistItem) setIsInWatchlist(true);
-
-          // Check Watched History
-          const { data: watchedItem } = await supabase
-            .from('watched_movies')
-            .select('id')
-            .eq('movie_id', data.id.toString())
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-
-          if (watchedItem) setIsWatched(true);
+          setIsInWatchlist(!!watchlistRes.data);
+          setIsWatched(!!watchedRes.data);
         }
       }
       setLoading(false);
     }
-    
+
     fetchDetailsAndStatus();
     window.scrollTo(0, 0);
+
+    return () => { cancelled = true; };
   }, [id]);
 
   const handleToggleWatchlist = async () => {
@@ -74,11 +87,14 @@ export default function MovieDetailsPage() {
         .from('watchlist')
         .delete()
         .eq('movie_id', movie.id.toString())
+        .eq('media_type', 'movie')
         .eq('user_id', session.user.id);
 
       if (!error) {
         setIsInWatchlist(false);
         toast.success("Removed from your queue!");
+      } else {
+        toast.error("Failed to remove from queue.");
       }
     } else {
       const movieIdStr = movie.id.toString();
@@ -86,6 +102,7 @@ export default function MovieDetailsPage() {
         .from('watchlist')
         .select('id')
         .eq('movie_id', movieIdStr)
+        .eq('media_type', 'movie')
         .eq('user_id', session.user.id)
         .maybeSingle();
 
@@ -94,7 +111,15 @@ export default function MovieDetailsPage() {
       } else {
         const { error } = await supabase
           .from('watchlist')
-          .insert([{ user_id: session.user.id, movie_id: movieIdStr, title: movie.title, poster_path: movie.poster_path, media_type: 'movie' }]);
+          .insert([{
+            user_id: session.user.id,
+            movie_id: movieIdStr,
+            title: movie.title,
+            poster_path: movie.poster_path,
+            media_type: 'movie',
+            release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
+            vote_average: movie.vote_average ?? null,
+          }]);
 
         if (!error) {
           setIsInWatchlist(true);
@@ -120,26 +145,66 @@ export default function MovieDetailsPage() {
 
     if (isWatched) {
       // Remove from Watched AND Completed vault
-      await supabase.from('watched_movies').delete().eq('movie_id', movieIdStr).eq('user_id', session.user.id);
-      await supabase.from('completed_items').delete().eq('media_id', movieIdStr).eq('user_id', session.user.id);
-      setIsWatched(false);
-      toast.success("Removed from watched history");
+      const { error: watchedErr } = await supabase
+        .from('watched_movies')
+        .delete()
+        .eq('movie_id', movieIdStr)
+        .eq('user_id', session.user.id);
+
+      const { error: completedErr } = await supabase
+        .from('completed_items')
+        .delete()
+        .eq('media_id', movieIdStr)
+        .eq('media_type', 'movie')
+        .eq('user_id', session.user.id);
+
+      if (watchedErr || completedErr) {
+        toast.error("Couldn't fully remove from watched history. Please try again.");
+      } else {
+        setIsWatched(false);
+        toast.success("Removed from watched history");
+      }
     } else {
-      // 1. Add to old watched table
-      await supabase.from('watched_movies').insert([{ user_id: session.user.id, movie_id: movieIdStr }]);
-      
-      // 2. Add to New Completed Vault
-      await supabase.from('completed_items').insert([{
-        user_id: session.user.id,
-        media_id: movieIdStr,
-        title: movie.title,
-        poster_path: movie.poster_path,
-        media_type: 'movie'
-      }]);
+      // 1. Add to watched table
+      const { error: watchedErr } = await supabase
+        .from('watched_movies')
+        .insert([{ user_id: session.user.id, movie_id: movieIdStr }]);
+
+      if (!isOk(watchedErr)) {
+        toast.error("Failed to mark as watched.");
+        setIsTogglingWatched(false);
+        return;
+      }
+
+      // 2. Add to Completed Vault
+      const { error: completedErr } = await supabase
+        .from('completed_items')
+        .insert([{
+          user_id: session.user.id,
+          media_id: movieIdStr,
+          title: movie.title,
+          poster_path: movie.poster_path,
+          media_type: 'movie',
+          release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
+          vote_average: movie.vote_average ?? null,
+        }]);
+
+      if (!isOk(completedErr)) {
+        toast.error("Marked as watched, but failed to save to Completed Vault.");
+        setIsWatched(true);
+        setIsTogglingWatched(false);
+        return;
+      }
 
       // 3. AUTO-REMOVE FROM QUEUE
-      await supabase.from('watchlist').delete().eq('movie_id', movieIdStr).eq('user_id', session.user.id);
-      setIsInWatchlist(false);
+      const { error: removeErr } = await supabase
+        .from('watchlist')
+        .delete()
+        .eq('movie_id', movieIdStr)
+        .eq('media_type', 'movie')
+        .eq('user_id', session.user.id);
+
+      if (!removeErr) setIsInWatchlist(false);
 
       setIsWatched(true);
       toast.success("Marked as watched & moved to Completed Vault!");
@@ -158,28 +223,28 @@ export default function MovieDetailsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] pb-16 transition-colors duration-500 pt-20">
-      
+
       {/* Hero Banner */}
       <div className="h-[60vh] md:h-[70vh] w-full bg-cover bg-center relative" style={{ backgroundImage: `url(${backdropUrl})` }}>
         <div className="absolute inset-0 bg-gradient-to-t from-slate-50 dark:from-[#0b101e] via-slate-50/80 dark:via-[#0b101e]/80 to-transparent transition-colors duration-500"></div>
         <div className="container mx-auto px-6 h-full flex items-end pb-12 relative z-10">
           <div className="flex flex-col md:flex-row gap-8 items-end md:items-start w-full">
             <img src={posterUrl} alt={movie.title} className="w-48 md:w-64 rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 hidden md:block" />
-            
+
             <div className="text-slate-900 dark:text-white max-w-3xl transition-colors duration-500">
               <h1 className="text-4xl md:text-6xl font-extrabold mb-4">{movie.title} <span className="text-slate-500 dark:text-slate-400 font-normal">({releaseYear})</span></h1>
-              
+
               <div className="flex flex-wrap gap-4 text-sm md:text-base font-medium text-slate-600 dark:text-slate-300 mb-6 transition-colors">
                 <span>{movie.release_date}</span><span>•</span><span>{runtime}</span><span>•</span>
                 <span className="flex gap-2">
                   {movie.genres?.map(g => <span key={g.id} className="bg-slate-200 dark:bg-white/10 px-2 py-1 rounded-md">{g.name}</span>)}
                 </span>
               </div>
-              
+
               <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed mb-8 italic transition-colors">{movie.tagline}</p>
               <h3 className="text-xl font-bold mb-2">Overview</h3>
               <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-8 transition-colors">{movie.overview}</p>
-              
+
               <div className="flex flex-wrap gap-4 mt-8">
                 {/* Watchlist Button */}
                 <button onClick={handleToggleWatchlist} disabled={isToggling} className={`px-8 py-3 rounded-lg font-bold text-lg shadow-lg transition-all ${isInWatchlist ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:bg-blue-700 hover:-translate-y-1'}`}>
@@ -207,7 +272,7 @@ export default function MovieDetailsPage() {
       {movie.credits?.cast && movie.credits.cast.length > 0 && (
         <div className="container mx-auto px-6 py-8 max-w-5xl border-t border-slate-200 dark:border-white/10 mt-8">
           <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Top Cast</h2>
-          
+
           <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory scrollbar-hide">
             {movie.credits.cast.slice(0, 15).map((actor) => (
               <div key={actor.id} className="min-w-[140px] w-[140px] flex-shrink-0 snap-start bg-white dark:bg-slate-800/80 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-white/5 transition-colors">

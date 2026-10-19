@@ -1,5 +1,5 @@
 const BASE_URL = 'https://api.themoviedb.org/3';
-
+ 
 // Fetch genres dynamically based on type ('movie' or 'tv')
 export async function getGenres(type = 'movie') {
   try {
@@ -11,7 +11,7 @@ export async function getGenres(type = 'movie') {
     return [];
   }
 }
-
+ 
 // Fetch languages dynamically or return popular languages fallback
 export const POPULAR_LANGUAGES = [
   { iso_639_1: 'en', english_name: 'English' },
@@ -35,7 +35,7 @@ export const POPULAR_LANGUAGES = [
   { iso_639_1: 'ar', english_name: 'Arabic' },
   { iso_639_1: 'tr', english_name: 'Turkish' },
 ];
-
+ 
 export async function getLanguages() {
   try {
     const res = await fetch(`${BASE_URL}/configuration/languages?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
@@ -51,14 +51,14 @@ export async function getLanguages() {
     return POPULAR_LANGUAGES;
   }
 }
-
+ 
 // Fetch content dynamically (Movies or TV Shows/Anime)
-export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '', language = '') {
+export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '', language = '', sortBy = 'popularity') {
   try {
     const yearParam = type === 'movie' ? 'primary_release_year' : 'first_air_date_year';
     
     let url = `${BASE_URL}/discover/${type}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&page=${page}`;
-
+ 
     // Support multiselect for genres using TMDB pipe '|' for OR filtering
     if (genre) {
       const genreVal = Array.isArray(genre) ? genre.join('|') : String(genre).replace(/,/g, '|');
@@ -89,7 +89,34 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
       const langVal = Array.isArray(language) ? language.join('|') : String(language).replace(/,/g, '|');
       if (langVal) url += `&with_original_language=${encodeURIComponent(langVal)}`;
     }
-
+ 
+    // Server-side sorting (applies across ALL results, not just the loaded page).
+    // 'popularity' is TMDB's default, so no sort_by param is sent for it.
+    const isMovie = type === 'movie';
+    const dateField = isMovie ? 'primary_release_date' : 'first_air_date';
+    const sortMap = {
+      rating_desc: 'vote_average.desc',
+      rating_asc: 'vote_average.asc',
+      year_desc: `${dateField}.desc`,
+      year_asc: `${dateField}.asc`,
+      name_asc: isMovie ? 'title.asc' : 'name.asc',
+      name_desc: isMovie ? 'title.desc' : 'name.desc',
+    };
+ 
+    if (sortMap[sortBy]) {
+      url += `&sort_by=${sortMap[sortBy]}`;
+ 
+      // Without a minimum vote count, TMDB ranks obscure titles with a handful of votes first
+      const minVotes = sortBy.startsWith('rating') ? (isMovie ? 300 : 150) : 20;
+      url += `&vote_count.gte=${minVotes}`;
+ 
+      // "Newest" should not start with unreleased titles (only when no explicit year filter is set)
+      if (sortBy === 'year_desc' && !year) {
+        const today = new Date().toISOString().slice(0, 10);
+        url += `&${dateField}.lte=${today}`;
+      }
+    }
+ 
     const res = await fetch(url);
     const data = await res.json();
     return data.results || [];
@@ -98,10 +125,10 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
     return [];
   }
 }
-
+ 
 export async function searchMovies(query) {
   if (!import.meta.env.VITE_TMDB_API_KEY || !query) return [];
-
+ 
   try {
     const response = await fetch(`${BASE_URL}/search/movie?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}`);
     const data = await response.json();
@@ -117,14 +144,14 @@ export async function searchMovies(query) {
     return [];
   }
 }
-
+ 
 export function getImageUrl(path, size = 'w500') {
   return path ? `https://image.tmdb.org/t/p/${size}${path}` : '/movie-poster.jpg';
 }
-
+ 
 export async function getMovieDetails(id) {
   if (!import.meta.env.VITE_TMDB_API_KEY || !id) return null;
-
+ 
   try {
     // append_to_response fetches the cast (credits) and trailers (videos) in the same request
     const response = await fetch(`${BASE_URL}/movie/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
@@ -140,7 +167,7 @@ export async function getMovieDetails(id) {
     return null;
   }
 }
-
+ 
 // Fetch TV Show / Anime Details
 export async function getShowDetails(id) {
   try {
@@ -151,7 +178,7 @@ export async function getShowDetails(id) {
     return null;
   }
 }
-
+ 
 // Fetch individual Season Details (including all episodes)
 export async function getSeasonDetails(showId, seasonNumber) {
   try {
@@ -162,7 +189,7 @@ export async function getSeasonDetails(showId, seasonNumber) {
     return null;
   }
 }
-
+ 
 // Universal Search (Movies & TV Shows)
 export async function searchContent(query, page = 1) {
   try {
@@ -174,5 +201,32 @@ export async function searchContent(query, page = 1) {
   } catch (error) {
     console.error("Error searching content:", error);
     return [];
+  }
+}
+ 
+// Live search for the navbar dropdown (abortable, no page param)
+export async function searchContentLive(query, signal) {
+  const res = await fetch(
+    `${BASE_URL}/search/multi?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}&include_adult=false`,
+    { signal }
+  );
+  if (!res.ok) throw new Error(`TMDB search failed: ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).filter(i => i.media_type === 'movie' || i.media_type === 'tv');
+}
+ 
+// Lightweight metadata (no credits/videos), used to backfill release_year and vote_average
+export async function getMediaMeta(type, id) {
+  try {
+    const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
+    if (!res.ok) return null;
+    const d = await res.json();
+    const date = d.release_date || d.first_air_date || '';
+    return {
+      release_year: date ? date.slice(0, 4) : null,
+      vote_average: typeof d.vote_average === 'number' ? d.vote_average : null,
+    };
+  } catch {
+    return null;
   }
 }

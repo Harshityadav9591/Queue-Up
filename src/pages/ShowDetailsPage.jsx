@@ -4,6 +4,9 @@ import { getShowDetails, getSeasonDetails, getImageUrl } from '../lib/tmdb';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
+// Postgres unique-violation: the row is already there, which is fine for our purposes
+const isOk = (error) => !error || error.code === '23505';
+
 export default function ShowDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -35,77 +38,119 @@ export default function ShowDetailsPage() {
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchDetailsAndStatus() {
       setLoading(true);
+
+      // Reset per-show state so navigating from one show to another (e.g. via search) never shows stale status
+      setIsInWatchlist(false);
+      setIsShowCompleted(false);
+      setWatchedSeasons(new Set());
+      setWatchedEpisodes(new Set());
+      setExpandedSeason(null);
+      setSeasonData({});
+      setSelectedEpisode(null);
+      setIsTrailerOpen(false);
+
       const data = await getShowDetails(id);
+      if (cancelled) return;
       setShow(data);
 
       if (data) {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session) {
-          // 1. Check Watchlist
-          const { data: watchlistItem } = await supabase
-            .from('watchlist')
-            .select('id')
-            .eq('movie_id', data.id)
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-          if (watchlistItem) setIsInWatchlist(true);
+          const showIdStr = data.id.toString();
+          const [watchlistRes, completedRes, seasonsRes, episodesRes] = await Promise.all([
+            // 1. Check Watchlist
+            supabase
+              .from('watchlist')
+              .select('id')
+              .eq('movie_id', data.id)
+              .eq('media_type', 'tv')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
+            // 2. Check Completed Vault
+            supabase
+              .from('completed_items')
+              .select('id')
+              .eq('media_id', showIdStr)
+              .eq('media_type', 'tv')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
+            // 3. Fetch Watched Seasons
+            supabase
+              .from('watched_seasons')
+              .select('season_number')
+              .eq('show_id', showIdStr)
+              .eq('user_id', session.user.id),
+            // 4. Fetch Watched Episodes
+            supabase
+              .from('watched_episodes')
+              .select('episode_id')
+              .eq('show_id', showIdStr)
+              .eq('user_id', session.user.id),
+          ]);
+          if (cancelled) return;
 
-          // 2. Check Completed Vault
-          const { data: completedItem } = await supabase
-            .from('completed_items')
-            .select('id')
-            .eq('media_id', data.id.toString())
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-          if (completedItem) setIsShowCompleted(true);
-
-          // 3. Fetch Watched Seasons
-          const { data: seasonsData } = await supabase
-            .from('watched_seasons')
-            .select('season_number')
-            .eq('show_id', data.id.toString())
-            .eq('user_id', session.user.id);
-          if (seasonsData) {
-            setWatchedSeasons(new Set(seasonsData.map(s => s.season_number)));
-          }
-
-          // 4. Fetch Watched Episodes
-          const { data: episodesData } = await supabase
-            .from('watched_episodes')
-            .select('episode_id')
-            .eq('show_id', data.id.toString())
-            .eq('user_id', session.user.id);
-          if (episodesData) {
-            setWatchedEpisodes(new Set(episodesData.map(ep => ep.episode_id)));
-          }
+          setIsInWatchlist(!!watchlistRes.data);
+          setIsShowCompleted(!!completedRes.data);
+          if (seasonsRes.data) setWatchedSeasons(new Set(seasonsRes.data.map(s => s.season_number)));
+          if (episodesRes.data) setWatchedEpisodes(new Set(episodesRes.data.map(ep => ep.episode_id)));
         }
       }
       setLoading(false);
     }
     fetchDetailsAndStatus();
     window.scrollTo(0, 0);
+
+    return () => { cancelled = true; };
   }, [id]);
+
+  // --- HELPERS ---
+
+  // Returns the episodes for a season, fetching and caching them if we don't have them yet
+  const ensureSeasonEpisodes = async (seasonNumber) => {
+    if (seasonData[seasonNumber]) return seasonData[seasonNumber];
+    const data = await getSeasonDetails(show.id, seasonNumber);
+    const episodes = data?.episodes || [];
+    if (data?.episodes) setSeasonData(prev => ({ ...prev, [seasonNumber]: episodes }));
+    return episodes;
+  };
 
   // --- BUTTON HANDLERS ---
 
   const handleToggleWatchlist = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return toast.error("Please sign in to manage your queue!");
+    if (!session) {
+      toast.error("Please sign in to manage your queue!");
+      navigate('/auth');
+      return;
+    }
 
     setIsToggling(true);
     if (isInWatchlist) {
-      await supabase.from('watchlist').delete().eq('movie_id', show.id).eq('user_id', session.user.id);
-      setIsInWatchlist(false);
-      toast.success(`Removed from your queue!`);
+      const { error } = await supabase
+        .from('watchlist')
+        .delete()
+        .eq('movie_id', show.id)
+        .eq('media_type', 'tv')
+        .eq('user_id', session.user.id);
+
+      if (!error) {
+        setIsInWatchlist(false);
+        toast.success(`Removed from your queue!`);
+      } else {
+        toast.error('Failed to remove from queue.');
+      }
     } else {
       const showIdStr = show.id.toString();
       const { data: existing } = await supabase
         .from('watchlist')
         .select('id')
         .eq('movie_id', showIdStr)
+        .eq('media_type', 'tv')
         .eq('user_id', session.user.id)
         .maybeSingle();
 
@@ -114,7 +159,15 @@ export default function ShowDetailsPage() {
       } else {
         const { error } = await supabase
           .from('watchlist')
-          .insert([{ user_id: session.user.id, movie_id: show.id, title: show.name, poster_path: show.poster_path, media_type: 'tv' }]);
+          .insert([{
+            user_id: session.user.id,
+            movie_id: show.id,
+            title: show.name,
+            poster_path: show.poster_path,
+            media_type: 'tv',
+            release_year: show.first_air_date ? show.first_air_date.substring(0, 4) : null,
+            vote_average: show.vote_average ?? null,
+          }]);
         if (!error) {
           setIsInWatchlist(true);
           toast.success(`Added to your queue!`);
@@ -128,28 +181,55 @@ export default function ShowDetailsPage() {
 
   const handleToggleShowCompleted = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return toast.error("Sign in to track shows!");
+    if (!session) {
+      toast.error("Sign in to track shows!");
+      navigate('/auth');
+      return;
+    }
 
     setIsTogglingShowCompleted(true);
     const showIdStr = show.id.toString();
 
     if (isShowCompleted) {
-      await supabase.from('completed_items').delete().eq('media_id', showIdStr).eq('user_id', session.user.id);
-      setIsShowCompleted(false);
-      toast.success("Removed from completed history");
+      const { error } = await supabase
+        .from('completed_items')
+        .delete()
+        .eq('media_id', showIdStr)
+        .eq('media_type', 'tv')
+        .eq('user_id', session.user.id);
+
+      if (!error) {
+        setIsShowCompleted(false);
+        toast.success("Removed from completed history");
+      } else {
+        toast.error("Failed to remove from completed history.");
+      }
     } else {
       // Add to Completed Vault
-      await supabase.from('completed_items').insert([{
+      const { error: completedErr } = await supabase.from('completed_items').insert([{
         user_id: session.user.id,
         media_id: showIdStr,
         title: show.name,
         poster_path: show.poster_path,
-        media_type: 'tv'
+        media_type: 'tv',
+        release_year: show.first_air_date ? show.first_air_date.substring(0, 4) : null,
+        vote_average: show.vote_average ?? null,
       }]);
+
+      if (!isOk(completedErr)) {
+        toast.error("Failed to save to Completed Vault.");
+        setIsTogglingShowCompleted(false);
+        return;
+      }
       
       // Auto-remove from Watchlist
-      await supabase.from('watchlist').delete().eq('movie_id', showIdStr).eq('user_id', session.user.id);
-      setIsInWatchlist(false);
+      const { error: removeErr } = await supabase
+        .from('watchlist')
+        .delete()
+        .eq('movie_id', showIdStr)
+        .eq('media_type', 'tv')
+        .eq('user_id', session.user.id);
+      if (!removeErr) setIsInWatchlist(false);
 
       setIsShowCompleted(true);
       toast.success("Show Completed & moved to Vault!");
@@ -165,8 +245,7 @@ export default function ShowDetailsPage() {
     setExpandedSeason(seasonNumber);
     if (!seasonData[seasonNumber]) {
       setLoadingSeason(true);
-      const data = await getSeasonDetails(show.id, seasonNumber);
-      if (data) setSeasonData(prev => ({ ...prev, [seasonNumber]: data.episodes }));
+      await ensureSeasonEpisodes(seasonNumber);
       setLoadingSeason(false);
     }
   };
@@ -174,44 +253,77 @@ export default function ShowDetailsPage() {
   const handleMarkSeasonWatched = async (e, seasonNumber) => {
     e.stopPropagation(); 
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return toast.error("Sign in to track episodes!");
+    if (!session) {
+      toast.error("Sign in to track episodes!");
+      navigate('/auth');
+      return;
+    }
 
     const isWatched = watchedSeasons.has(seasonNumber);
+    const showIdStr = show.id.toString();
     setIsTogglingSeason(true);
     const toastId = toast.loading(isWatched ? `Unmarking Season ${seasonNumber}...` : `Marking Season ${seasonNumber} as watched...`);
 
     try {
+      const episodes = await ensureSeasonEpisodes(seasonNumber);
+      const episodeIds = episodes.map(ep => ep.id.toString());
+
       if (isWatched) {
-        await supabase.from('watched_seasons').delete().eq('show_id', show.id.toString()).eq('season_number', seasonNumber).eq('user_id', session.user.id);
+        // Unmark the season AND all of its episodes so the two never disagree
+        const { error: seasonErr } = await supabase
+          .from('watched_seasons')
+          .delete()
+          .eq('show_id', showIdStr)
+          .eq('season_number', seasonNumber)
+          .eq('user_id', session.user.id);
+        if (seasonErr) throw seasonErr;
+
+        if (episodeIds.length > 0) {
+          const { error: epErr } = await supabase
+            .from('watched_episodes')
+            .delete()
+            .eq('user_id', session.user.id)
+            .in('episode_id', episodeIds);
+          if (epErr) throw epErr;
+        }
+
         setWatchedSeasons(prev => { const next = new Set(prev); next.delete(seasonNumber); return next; });
+        setWatchedEpisodes(prev => {
+          const next = new Set(prev);
+          episodeIds.forEach(epId => next.delete(epId));
+          return next;
+        });
         toast.success(`Season ${seasonNumber} unmarked!`, { id: toastId });
       } else {
-        let episodes = seasonData[seasonNumber];
-        if (!episodes) {
-          const data = await getSeasonDetails(show.id, seasonNumber);
-          episodes = data?.episodes || [];
-          setSeasonData(prev => ({ ...prev, [seasonNumber]: episodes }));
-        }
-
-        if (episodes.length > 0) {
-          const rowsToInsert = episodes.map(ep => ({
+        // Bulk upsert: one request for the whole season instead of one insert per episode.
+        // Relies on UNIQUE (user_id, episode_id) and UNIQUE (user_id, show_id, season_number).
+        // ignoreDuplicates = ON CONFLICT DO NOTHING, so only the INSERT policy is needed.
+        if (episodeIds.length > 0) {
+          const rowsToInsert = episodeIds.map(epId => ({
             user_id: session.user.id,
-            show_id: show.id.toString(),
-            episode_id: ep.id.toString()
+            show_id: showIdStr,
+            episode_id: epId
           }));
-          await supabase.from('watched_episodes').upsert(rowsToInsert, { onConflict: 'user_id, episode_id', ignoreDuplicates: true });
+          const { error: epErr } = await supabase
+            .from('watched_episodes')
+            .upsert(rowsToInsert, { onConflict: 'user_id,episode_id', ignoreDuplicates: true });
+          if (epErr) throw epErr;
         }
 
-        await supabase.from('watched_seasons').upsert({
-          user_id: session.user.id,
-          show_id: show.id.toString(),
-          season_number: seasonNumber
-        }, { onConflict: 'user_id, show_id, season_number', ignoreDuplicates: true });
+        const { error: seasonErr } = await supabase
+          .from('watched_seasons')
+          .upsert({
+            user_id: session.user.id,
+            show_id: showIdStr,
+            season_number: seasonNumber
+          }, { onConflict: 'user_id,show_id,season_number', ignoreDuplicates: true });
+        if (seasonErr) throw seasonErr;
 
+        // Only update the UI after the database confirmed the writes
         setWatchedSeasons(prev => new Set(prev).add(seasonNumber));
         setWatchedEpisodes(prev => {
           const next = new Set(prev);
-          episodes.forEach(ep => next.add(ep.id.toString()));
+          episodeIds.forEach(epId => next.add(epId));
           return next;
         });
 
@@ -230,17 +342,56 @@ export default function ShowDetailsPage() {
 
   const toggleEpisodeWatched = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return toast.error("Sign in to track episodes!");
+    if (!session) {
+      toast.error("Sign in to track episodes!");
+      navigate('/auth');
+      return;
+    }
 
     setIsTogglingWatched(true);
     const epId = selectedEpisode.id.toString();
+    const showIdStr = show.id.toString();
 
     if (isEpisodeWatched) {
-      await supabase.from('watched_episodes').delete().eq('episode_id', epId).eq('user_id', session.user.id);
+      const { error } = await supabase
+        .from('watched_episodes')
+        .delete()
+        .eq('episode_id', epId)
+        .eq('user_id', session.user.id);
+
+      if (error) {
+        toast.error("Failed to unmark episode.");
+        setIsTogglingWatched(false);
+        return;
+      }
+
       setIsEpisodeWatched(false);
       setWatchedEpisodes(prev => { const n = new Set(prev); n.delete(epId); return n; });
+
+      // If its season was marked as fully watched, that's no longer true
+      const sn = selectedEpisode.season_number;
+      if (watchedSeasons.has(sn)) {
+        const { error: seasonErr } = await supabase
+          .from('watched_seasons')
+          .delete()
+          .eq('show_id', showIdStr)
+          .eq('season_number', sn)
+          .eq('user_id', session.user.id);
+        if (!seasonErr) {
+          setWatchedSeasons(prev => { const n = new Set(prev); n.delete(sn); return n; });
+        }
+      }
     } else {
-      await supabase.from('watched_episodes').insert([{ user_id: session.user.id, show_id: show.id.toString(), episode_id: epId }]);
+      const { error } = await supabase
+        .from('watched_episodes')
+        .insert([{ user_id: session.user.id, show_id: showIdStr, episode_id: epId }]);
+
+      if (!isOk(error)) {
+        toast.error("Failed to mark episode as watched.");
+        setIsTogglingWatched(false);
+        return;
+      }
+
       setIsEpisodeWatched(true);
       setWatchedEpisodes(prev => new Set(prev).add(epId));
     }
