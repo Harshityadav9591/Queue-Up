@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useScrollReveal } from '../hooks/useScrollReveal';
 import Button from '../components/ui/Button';
 import Footer from '../components/layout/Footer';
 

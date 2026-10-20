@@ -4,9 +4,6 @@ import { getMovieDetails, getImageUrl } from '../lib/tmdb';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
-// Postgres unique-violation: the row is already there, which is fine for our purposes
-const isOk = (error) => !error || error.code === '23505';
-
 export default function MovieDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -144,70 +141,38 @@ export default function MovieDetailsPage() {
     const movieIdStr = movie.id.toString();
 
     if (isWatched) {
-      // Remove from Watched AND Completed vault
-      const { error: watchedErr } = await supabase
-        .from('watched_movies')
-        .delete()
-        .eq('movie_id', movieIdStr)
-        .eq('user_id', session.user.id);
+      // One atomic database call: removes from watched_movies AND the Completed Vault together
+      const { error } = await supabase.rpc('uncomplete_item', {
+        p_media_id: movieIdStr,
+        p_media_type: 'movie',
+      });
 
-      const { error: completedErr } = await supabase
-        .from('completed_items')
-        .delete()
-        .eq('media_id', movieIdStr)
-        .eq('media_type', 'movie')
-        .eq('user_id', session.user.id);
-
-      if (watchedErr || completedErr) {
-        toast.error("Couldn't fully remove from watched history. Please try again.");
+      if (error) {
+        toast.error("Couldn't remove from watched history. Please try again.");
       } else {
         setIsWatched(false);
         toast.success("Removed from watched history");
       }
     } else {
-      // 1. Add to watched table
-      const { error: watchedErr } = await supabase
-        .from('watched_movies')
-        .insert([{ user_id: session.user.id, movie_id: movieIdStr }]);
+      // One atomic database call: saves to watched_movies, saves to the Completed Vault,
+      // and removes from the Watchlist. Either all three happen or none do.
+      const { error } = await supabase.rpc('complete_item', {
+        p_media_id: movieIdStr,
+        p_media_type: 'movie',
+        p_title: movie.title,
+        p_poster_path: movie.poster_path ?? null,
+        p_release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
+        p_vote_average: movie.vote_average ?? null,
+        p_runtime_minutes: movie.runtime ?? null,
+      });
 
-      if (!isOk(watchedErr)) {
-        toast.error("Failed to mark as watched.");
-        setIsTogglingWatched(false);
-        return;
-      }
-
-      // 2. Add to Completed Vault
-      const { error: completedErr } = await supabase
-        .from('completed_items')
-        .insert([{
-          user_id: session.user.id,
-          media_id: movieIdStr,
-          title: movie.title,
-          poster_path: movie.poster_path,
-          media_type: 'movie',
-          release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
-          vote_average: movie.vote_average ?? null,
-        }]);
-
-      if (!isOk(completedErr)) {
-        toast.error("Marked as watched, but failed to save to Completed Vault.");
+      if (error) {
+        toast.error("Failed to mark as watched. Please try again.");
+      } else {
         setIsWatched(true);
-        setIsTogglingWatched(false);
-        return;
+        setIsInWatchlist(false);
+        toast.success("Marked as watched & moved to Completed Vault!");
       }
-
-      // 3. AUTO-REMOVE FROM QUEUE
-      const { error: removeErr } = await supabase
-        .from('watchlist')
-        .delete()
-        .eq('movie_id', movieIdStr)
-        .eq('media_type', 'movie')
-        .eq('user_id', session.user.id);
-
-      if (!removeErr) setIsInWatchlist(false);
-
-      setIsWatched(true);
-      toast.success("Marked as watched & moved to Completed Vault!");
     }
     setIsTogglingWatched(false);
   };

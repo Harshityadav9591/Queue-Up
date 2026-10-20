@@ -34,7 +34,7 @@ export default function ShowDetailsPage() {
 
   // Episode Modal State
   const [selectedEpisode, setSelectedEpisode] = useState(null);
-  const [isEpisodeWatched, setIsEpisodeWatched] = useState(false);
+  const isEpisodeWatched = selectedEpisode ? watchedEpisodes.has(selectedEpisode.id.toString()) : false;
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
 
   useEffect(() => {
@@ -107,6 +107,14 @@ export default function ShowDetailsPage() {
 
     return () => { cancelled = true; };
   }, [id]);
+
+  // Escape closes the episode window
+  useEffect(() => {
+    if (!selectedEpisode) return;
+    const onKeyDown = (e) => { if (e.key === 'Escape') setSelectedEpisode(null); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedEpisode]);
 
   // --- HELPERS ---
 
@@ -191,24 +199,57 @@ export default function ShowDetailsPage() {
     const showIdStr = show.id.toString();
 
     if (isShowCompleted) {
-      const { error } = await supabase
-        .from('completed_items')
-        .delete()
-        .eq('media_id', showIdStr)
-        .eq('media_type', 'tv')
-        .eq('user_id', session.user.id);
+      const { error } = await supabase.rpc('uncomplete_item', {
+        p_media_id: showIdStr,
+        p_media_type: 'tv',
+      });
 
-      if (!error) {
+      if (error) {
+        toast.error("Failed to remove from completed history.");
+      } else {
         setIsShowCompleted(false);
         toast.success("Removed from completed history");
-      } else {
-        toast.error("Failed to remove from completed history.");
       }
     } else {
-      // Add to Completed Vault
-      const { error: completedErr } = await supabase.from('completed_items').insert([{
+      // One atomic database call: saves to the Completed Vault AND removes from the Watchlist
+      const { error } = await supabase.rpc('complete_item', {
+        p_media_id: showIdStr,
+        p_media_type: 'tv',
+        p_title: show.name,
+        p_poster_path: show.poster_path ?? null,
+        p_release_year: show.first_air_date ? show.first_air_date.substring(0, 4) : null,
+        p_vote_average: show.vote_average ?? null,
+      });
+
+      if (error) {
+        toast.error("Failed to save to Completed Vault. Please try again.");
+      } else {
+        setIsShowCompleted(true);
+        setIsInWatchlist(false);
+        toast.success("Show Completed & moved to Vault!");
+      }
+    }
+    setIsTogglingShowCompleted(false);
+  };
+
+  // --- WATCH TRACKING HELPERS ---
+
+  const showEnded = show?.status === 'Ended' || show?.status === 'Canceled';
+
+  // An episode counts as "aired" when its air date is today or earlier. Episodes with no date are treated
+  // as aired only for ended shows (for ongoing shows they are usually "to be announced" placeholders).
+  const episodeAired = (ep) => (ep.air_date ? ep.air_date <= new Date().toISOString().slice(0, 10) : showEnded);
+
+  const getEpisodeRuntime = (ep) => ep.runtime ?? show.episode_run_time?.[0] ?? null;
+
+  // Adds the show to the Watching queue the first time any episode is marked (never if it is already in the Vault)
+  const ensureInWatchlist = async (session) => {
+    if (isInWatchlist || isShowCompleted) return;
+    const { error } = await supabase
+      .from('watchlist')
+      .insert([{
         user_id: session.user.id,
-        media_id: showIdStr,
+        movie_id: show.id,
         title: show.name,
         poster_path: show.poster_path,
         media_type: 'tv',
@@ -216,26 +257,95 @@ export default function ShowDetailsPage() {
         vote_average: show.vote_average ?? null,
       }]);
 
-      if (!isOk(completedErr)) {
-        toast.error("Failed to save to Completed Vault.");
-        setIsTogglingShowCompleted(false);
-        return;
-      }
-      
-      // Auto-remove from Watchlist
-      const { error: removeErr } = await supabase
-        .from('watchlist')
-        .delete()
-        .eq('movie_id', showIdStr)
-        .eq('media_type', 'tv')
-        .eq('user_id', session.user.id);
-      if (!removeErr) setIsInWatchlist(false);
-
-      setIsShowCompleted(true);
-      toast.success("Show Completed & moved to Vault!");
+    if (isOk(error)) {
+      setIsInWatchlist(true);
+      if (!error) toast.success('Added to your queue!');
     }
-    setIsTogglingShowCompleted(false);
   };
+
+  // Moves an ENDED show to the Completed Vault once every regular season is fully watched.
+  // Ongoing shows stay in Watching. Returns true if the show was moved.
+  const maybeAutoComplete = async (watchedSeasonSet) => {
+    if (isShowCompleted || !showEnded) return false;
+
+    const requiredSeasons = (show.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
+    if (requiredSeasons.length === 0 || !requiredSeasons.every(s => watchedSeasonSet.has(s.season_number))) return false;
+
+    const { error } = await supabase.rpc('complete_item', {
+      p_media_id: show.id.toString(),
+      p_media_type: 'tv',
+      p_title: show.name,
+      p_poster_path: show.poster_path ?? null,
+      p_release_year: show.first_air_date ? show.first_air_date.substring(0, 4) : null,
+      p_vote_average: show.vote_average ?? null,
+    });
+
+    if (error) {
+      toast.error('You watched everything, but the show could not be moved to the Vault.');
+      return false;
+    }
+
+    setIsShowCompleted(true);
+    setIsInWatchlist(false);
+    toast.success('Series finished! Moved to your Completed Vault.');
+    return true;
+  };
+
+  // Keeps a season's "Watched" flag in step with its episodes. Returns the updated set of watched seasons.
+  const syncSeasonFlag = async (session, seasonNumber, episodes, watchedEpisodeSet) => {
+    const next = new Set(watchedSeasons);
+    if (episodes.length === 0) return next;
+
+    const airedIds = episodes.filter(episodeAired).map(ep => ep.id.toString());
+    const allWatched = airedIds.length > 0 && airedIds.every(id => watchedEpisodeSet.has(id));
+    const flagged = next.has(seasonNumber);
+    const showIdStr = show.id.toString();
+
+    if (allWatched && !flagged) {
+      const { error } = await supabase
+        .from('watched_seasons')
+        .upsert({
+          user_id: session.user.id,
+          show_id: showIdStr,
+          season_number: seasonNumber
+        }, { onConflict: 'user_id,show_id,season_number', ignoreDuplicates: true });
+      if (error) throw error;
+      next.add(seasonNumber);
+    } else if (!allWatched && flagged) {
+      const { error } = await supabase
+        .from('watched_seasons')
+        .delete()
+        .eq('show_id', showIdStr)
+        .eq('season_number', seasonNumber)
+        .eq('user_id', session.user.id);
+      if (error) throw error;
+      next.delete(seasonNumber);
+    }
+
+    setWatchedSeasons(next);
+    return next;
+  };
+
+  // When a season is opened, drop a stale "Watched" flag (e.g. a new episode aired since it was marked)
+  const reconcileSeasonFlag = async (seasonNumber, episodes) => {
+    if (!watchedSeasons.has(seasonNumber) || episodes.length === 0) return;
+    const airedIds = episodes.filter(episodeAired).map(ep => ep.id.toString());
+    if (airedIds.every(id => watchedEpisodes.has(id))) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { error } = await supabase
+      .from('watched_seasons')
+      .delete()
+      .eq('show_id', show.id.toString())
+      .eq('season_number', seasonNumber)
+      .eq('user_id', session.user.id);
+    if (!error) {
+      setWatchedSeasons(prev => { const n = new Set(prev); n.delete(seasonNumber); return n; });
+    }
+  };
+
+  // --- SEASON & EPISODE HANDLERS ---
 
   const handleSeasonClick = async (seasonNumber) => {
     if (expandedSeason === seasonNumber) {
@@ -245,8 +355,9 @@ export default function ShowDetailsPage() {
     setExpandedSeason(seasonNumber);
     if (!seasonData[seasonNumber]) {
       setLoadingSeason(true);
-      await ensureSeasonEpisodes(seasonNumber);
+      const episodes = await ensureSeasonEpisodes(seasonNumber);
       setLoadingSeason(false);
+      await reconcileSeasonFlag(seasonNumber, episodes);
     }
   };
 
@@ -295,52 +406,52 @@ export default function ShowDetailsPage() {
         });
         toast.success(`Season ${seasonNumber} unmarked!`, { id: toastId });
       } else {
-        // Bulk upsert: one request for the whole season instead of one insert per episode.
-        // Relies on UNIQUE (user_id, episode_id) and UNIQUE (user_id, show_id, season_number).
-        // ignoreDuplicates = ON CONFLICT DO NOTHING, so only the INSERT policy is needed.
-        if (episodeIds.length > 0) {
-          const rowsToInsert = episodeIds.map(epId => ({
-            user_id: session.user.id,
-            show_id: showIdStr,
-            episode_id: epId
-          }));
-          const { error: epErr } = await supabase
-            .from('watched_episodes')
-            .upsert(rowsToInsert, { onConflict: 'user_id,episode_id', ignoreDuplicates: true });
-          if (epErr) throw epErr;
+        // Only episodes that have already aired are marked (unaired ones can't have been watched)
+        const airedEpisodes = episodes.filter(episodeAired);
+        if (airedEpisodes.length === 0) {
+          toast('No aired episodes in this season yet.', { id: toastId });
+          return;
         }
 
-        const { error: seasonErr } = await supabase
-          .from('watched_seasons')
-          .upsert({
-            user_id: session.user.id,
-            show_id: showIdStr,
-            season_number: seasonNumber
-          }, { onConflict: 'user_id,show_id,season_number', ignoreDuplicates: true });
-        if (seasonErr) throw seasonErr;
+        // Bulk upsert: one request for the whole season instead of one insert per episode.
+        // Relies on UNIQUE (user_id, episode_id). ignoreDuplicates = ON CONFLICT DO NOTHING,
+        // so episodes you already marked keep their original date.
+        const rowsToInsert = airedEpisodes.map(ep => ({
+          user_id: session.user.id,
+          show_id: showIdStr,
+          episode_id: ep.id.toString(),
+          runtime_minutes: getEpisodeRuntime(ep),
+        }));
+        const { error: epErr } = await supabase
+          .from('watched_episodes')
+          .upsert(rowsToInsert, { onConflict: 'user_id,episode_id', ignoreDuplicates: true });
+        if (epErr) throw epErr;
 
-        // Only update the UI after the database confirmed the writes
-        setWatchedSeasons(prev => new Set(prev).add(seasonNumber));
-        setWatchedEpisodes(prev => {
-          const next = new Set(prev);
-          episodeIds.forEach(epId => next.add(epId));
-          return next;
-        });
+        // Only update the UI after the database confirmed the write
+        const nextEpisodes = new Set(watchedEpisodes);
+        airedEpisodes.forEach(ep => nextEpisodes.add(ep.id.toString()));
+        setWatchedEpisodes(nextEpisodes);
 
+        // Flags the season as watched (all aired episodes are now marked)
+        const nextSeasons = await syncSeasonFlag(session, seasonNumber, episodes, nextEpisodes);
         toast.success(`Season ${seasonNumber} marked as watched!`, { id: toastId });
+
+        const completed = await maybeAutoComplete(nextSeasons);
+        if (!completed) await ensureInWatchlist(session);
       }
     } catch (err) {
       toast.error(`Error: ${err.message}`, { id: toastId });
+    } finally {
+      setIsTogglingSeason(false);
     }
-    setIsTogglingSeason(false);
   };
 
   const handleEpisodeClick = (episode) => {
     setSelectedEpisode(episode);
-    setIsEpisodeWatched(watchedEpisodes.has(episode.id.toString()));
   };
 
-  const toggleEpisodeWatched = async () => {
+  // Marks or unmarks one episode, then keeps the season flag, the queue and the Vault in step
+  const setEpisodeWatched = async (episode, markWatched) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       toast.error("Sign in to track episodes!");
@@ -348,54 +459,63 @@ export default function ShowDetailsPage() {
       return;
     }
 
-    setIsTogglingWatched(true);
-    const epId = selectedEpisode.id.toString();
+    const epId = episode.id.toString();
     const showIdStr = show.id.toString();
 
-    if (isEpisodeWatched) {
+    if (markWatched) {
+      const { error } = await supabase
+        .from('watched_episodes')
+        .insert([{
+          user_id: session.user.id,
+          show_id: showIdStr,
+          episode_id: epId,
+          runtime_minutes: getEpisodeRuntime(episode),
+        }]);
+      if (!isOk(error)) {
+        toast.error("Failed to mark episode as watched.");
+        return;
+      }
+    } else {
       const { error } = await supabase
         .from('watched_episodes')
         .delete()
         .eq('episode_id', epId)
         .eq('user_id', session.user.id);
-
       if (error) {
         toast.error("Failed to unmark episode.");
-        setIsTogglingWatched(false);
         return;
       }
-
-      setIsEpisodeWatched(false);
-      setWatchedEpisodes(prev => { const n = new Set(prev); n.delete(epId); return n; });
-
-      // If its season was marked as fully watched, that's no longer true
-      const sn = selectedEpisode.season_number;
-      if (watchedSeasons.has(sn)) {
-        const { error: seasonErr } = await supabase
-          .from('watched_seasons')
-          .delete()
-          .eq('show_id', showIdStr)
-          .eq('season_number', sn)
-          .eq('user_id', session.user.id);
-        if (!seasonErr) {
-          setWatchedSeasons(prev => { const n = new Set(prev); n.delete(sn); return n; });
-        }
-      }
-    } else {
-      const { error } = await supabase
-        .from('watched_episodes')
-        .insert([{ user_id: session.user.id, show_id: showIdStr, episode_id: epId }]);
-
-      if (!isOk(error)) {
-        toast.error("Failed to mark episode as watched.");
-        setIsTogglingWatched(false);
-        return;
-      }
-
-      setIsEpisodeWatched(true);
-      setWatchedEpisodes(prev => new Set(prev).add(epId));
     }
-    setIsTogglingWatched(false);
+
+    const nextEpisodes = new Set(watchedEpisodes);
+    if (markWatched) nextEpisodes.add(epId);
+    else nextEpisodes.delete(epId);
+    setWatchedEpisodes(nextEpisodes);
+
+    const seasonEpisodes = seasonData[episode.season_number] || [];
+    const nextSeasons = await syncSeasonFlag(session, episode.season_number, seasonEpisodes, nextEpisodes);
+
+    if (markWatched) {
+      const completed = await maybeAutoComplete(nextSeasons);
+      if (!completed) await ensureInWatchlist(session);
+    }
+  };
+
+  // Used by both the tick button on each episode row and the button inside the episode window
+  const toggleEpisodeFromList = async (episode, currentlyWatched) => {
+    if (isTogglingWatched) return;
+    setIsTogglingWatched(true);
+    try {
+      await setEpisodeWatched(episode, !currentlyWatched);
+    } catch (err) {
+      toast.error(`Error: ${err.message}`);
+    } finally {
+      setIsTogglingWatched(false);
+    }
+  };
+
+  const toggleEpisodeWatched = () => {
+    if (selectedEpisode) toggleEpisodeFromList(selectedEpisode, isEpisodeWatched);
   };
 
   // --- RENDERING ---
@@ -506,11 +626,22 @@ export default function ShowDetailsPage() {
                             onClick={() => handleEpisodeClick(episode)}
                             className="p-6 flex flex-col md:flex-row gap-6 hover:bg-white dark:hover:bg-slate-800/60 cursor-pointer transition-colors relative"
                           >
-                            {isEpWatched && (
-                              <div className="absolute top-4 right-4 bg-emerald-500 text-white text-xs font-bold px-2 py-1 rounded shadow-sm z-10">
-                                ✓ Watched
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleEpisodeFromList(episode, isEpWatched); }}
+                              disabled={isTogglingWatched}
+                              aria-label={isEpWatched ? 'Mark episode as not watched' : 'Mark episode as watched'}
+                              title={isEpWatched ? 'Watched (click to undo)' : 'Mark as watched'}
+                              className={`absolute top-4 right-4 z-10 w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all disabled:opacity-60 ${
+                                isEpWatched
+                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
+                                  : 'border-slate-300 dark:border-slate-600 text-transparent hover:border-emerald-500 hover:text-emerald-500'
+                              }`}
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </button>
 
                             <div className="w-full md:w-48 flex-shrink-0 aspect-video rounded-lg overflow-hidden bg-slate-200 dark:bg-slate-800 relative shadow-sm">
                                {episode.still_path ? (
@@ -522,7 +653,7 @@ export default function ShowDetailsPage() {
                                  {episode.runtime ? `${episode.runtime}m` : ''}
                                </div>
                             </div>
-                            <div className="flex-grow pr-8">
+                            <div className="flex-grow pr-14">
                               <h5 className="font-bold text-lg text-slate-900 dark:text-white transition-colors">
                                 <span className="text-blue-600 dark:text-slate-400 mr-2">{episode.episode_number}.</span>
                                 {episode.name}
@@ -551,10 +682,9 @@ export default function ShowDetailsPage() {
 
       {/* EPISODE MODAL */}
       {selectedEpisode && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-all">
-          <div className="relative w-full max-w-2xl bg-white dark:bg-[#0b101e] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div onClick={() => setSelectedEpisode(null)} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-all">
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" className="relative w-full max-w-2xl bg-white dark:bg-[#0b101e] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             
-            <button onClick={() => setSelectedEpisode(null)} className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center transition-colors font-bold">✕</button>
 
             <div className="w-full h-48 md:h-64 bg-slate-200 dark:bg-slate-800 relative">
               {selectedEpisode.still_path && <img src={getImageUrl(selectedEpisode.still_path, 'original')} alt={selectedEpisode.name} className="w-full h-full object-cover" />}

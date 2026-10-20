@@ -56,9 +56,15 @@ export default function Navbar() {
 
         {/* Top bar for mobile layout (Logo + Hamburger) */}
         <div className="flex justify-between items-center w-full md:w-auto">
-          <Link to={session ? "/discover" : "/"} className="flex items-center gap-3 z-50 relative">
-            <img src="/logo.png" alt="Queue Up Logo" className="w-10 h-10 object-contain drop-shadow-md dark:mix-blend-lighten" />
-            <span className="text-2xl font-bold text-slate-900 dark:text-white tracking-wide transition-colors">Queue Up</span>
+          <Link to={session ? "/discover" : "/"} aria-label="Queue Up home" className="group flex items-center gap-3 z-50 relative">
+            <img
+              src="/icon-192.png"
+              alt=""
+              className="w-10 h-10 rounded-xl ring-1 ring-black/10 dark:ring-white/10 shadow-md shadow-blue-500/20 transition-transform duration-300 group-hover:scale-105"
+            />
+            <span className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white transition-colors">
+              Queue <span className="text-blue-600 dark:text-[#00f0ff]">Up</span>
+            </span>
           </Link>
 
           <button
