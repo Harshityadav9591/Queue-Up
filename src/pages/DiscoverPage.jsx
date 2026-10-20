@@ -181,6 +181,9 @@ export default function DiscoverPage() {
     return () => {
       isCancelled = true;
     };
+  // The filters (genre, year, language, sort) are all read from the URL, so searchParamsString already covers them.
+  // Adding the derived arrays here would refetch on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentType, page, searchParamsString]);
 
   // 3. Infinite Scroll Observer

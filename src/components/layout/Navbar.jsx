@@ -6,6 +6,7 @@ import SearchDropdown from './SearchDropdown';
 
 export default function Navbar() {
   const [session, setSession] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -37,6 +38,30 @@ export default function Navbar() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Load the profile picture for the Profile button, and update it live when it changes on the profile page
+  const userId = session?.user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    supabase
+      .from('profiles')
+      .select('avatar_url')
+      .eq('id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setAvatarUrl(data?.avatar_url || null);
+      });
+
+    const onProfileUpdated = (e) => setAvatarUrl(e.detail?.avatar_url || null);
+    window.addEventListener('profile-updated', onProfileUpdated);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('profile-updated', onProfileUpdated);
+    };
+  }, [userId]);
 
   const toggleTheme = () => {
     const nextMode = !isDarkMode;
@@ -97,7 +122,12 @@ export default function Navbar() {
 
           {session ? (
             <Link to="/profile">
-              <button className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 px-6 py-2 rounded-lg shadow-sm border border-slate-300 dark:border-white/10 transition-all font-bold">
+              <button className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700 px-5 py-1.5 rounded-lg shadow-sm border border-slate-300 dark:border-white/10 transition-all font-bold flex items-center gap-2">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover" />
+                ) : (
+                  <span className="w-7 h-7 rounded-full bg-slate-300 dark:bg-slate-700 flex items-center justify-center text-sm">👤</span>
+                )}
                 Profile
               </button>
             </Link>

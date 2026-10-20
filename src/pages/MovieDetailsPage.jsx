@@ -18,6 +18,10 @@ export default function MovieDetailsPage() {
   const [isWatched, setIsWatched] = useState(false);
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
 
+  // Favorite State
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
 
   useEffect(() => {
@@ -28,6 +32,7 @@ export default function MovieDetailsPage() {
       // Reset per-movie state so navigating from one movie to another (e.g. via search) never shows stale status
       setIsInWatchlist(false);
       setIsWatched(false);
+      setIsFavorite(false);
 
       const data = await getMovieDetails(id);
       if (cancelled) return;
@@ -38,7 +43,7 @@ export default function MovieDetailsPage() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
-          const [watchlistRes, watchedRes] = await Promise.all([
+          const [watchlistRes, watchedRes, favoriteRes] = await Promise.all([
             // Check Watchlist
             supabase
               .from('watchlist')
@@ -54,11 +59,20 @@ export default function MovieDetailsPage() {
               .eq('movie_id', data.id.toString())
               .eq('user_id', session.user.id)
               .maybeSingle(),
+            // Check Favorites
+            supabase
+              .from('favorites')
+              .select('id')
+              .eq('media_id', data.id.toString())
+              .eq('media_type', 'movie')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
           ]);
           if (cancelled) return;
 
           setIsInWatchlist(!!watchlistRes.data);
           setIsWatched(!!watchedRes.data);
+          setIsFavorite(!!favoriteRes.data);
         }
       }
       setLoading(false);
@@ -127,6 +141,55 @@ export default function MovieDetailsPage() {
       }
     }
     setIsToggling(false);
+  };
+
+  const handleToggleFavorite = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please sign in to save favorites!");
+      navigate('/auth');
+      return;
+    }
+
+    setIsTogglingFavorite(true);
+    const movieIdStr = movie.id.toString();
+
+    if (isFavorite) {
+      const { error } = await supabase
+        .from('favorites')
+        .delete()
+        .eq('media_id', movieIdStr)
+        .eq('media_type', 'movie')
+        .eq('user_id', session.user.id);
+
+      if (error) {
+        toast.error("Failed to remove from favorites.");
+      } else {
+        setIsFavorite(false);
+        toast.success("Removed from favorites");
+      }
+    } else {
+      const { error } = await supabase
+        .from('favorites')
+        .insert([{
+          user_id: session.user.id,
+          media_id: movieIdStr,
+          media_type: 'movie',
+          title: movie.title,
+          poster_path: movie.poster_path ?? null,
+          release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
+          vote_average: movie.vote_average ?? null,
+        }]);
+
+      // 23505 = already a favorite, which is fine
+      if (error && error.code !== '23505') {
+        toast.error("Failed to add to favorites.");
+      } else {
+        setIsFavorite(true);
+        toast.success("Added to favorites!");
+      }
+    }
+    setIsTogglingFavorite(false);
   };
 
   const handleToggleWatched = async () => {
@@ -219,6 +282,17 @@ export default function MovieDetailsPage() {
                 {/* Mark as Watched Button */}
                 <button onClick={handleToggleWatched} disabled={isTogglingWatched} className={`px-8 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 ${isWatched ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 hover:bg-emerald-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}>
                   {isTogglingWatched ? 'Updating...' : isWatched ? '✓ Watched' : 'Mark as Watched'}
+                </button>
+
+                {/* Favorite Button */}
+                <button
+                  onClick={handleToggleFavorite}
+                  disabled={isTogglingFavorite}
+                  aria-pressed={isFavorite}
+                  className={`px-6 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 border-2 ${isFavorite ? 'bg-rose-500/10 text-rose-500 border-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
+                >
+                  <span>{isFavorite ? '♥' : '♡'}</span>
+                  {isTogglingFavorite ? 'Updating...' : isFavorite ? 'Favorited' : 'Favorite'}
                 </button>
 
                 {/* Trailer Button */}

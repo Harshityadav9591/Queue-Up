@@ -18,6 +18,10 @@ export default function ShowDetailsPage() {
   const [isToggling, setIsToggling] = useState(false);
   const [isShowCompleted, setIsShowCompleted] = useState(false);
   const [isTogglingShowCompleted, setIsTogglingShowCompleted] = useState(false);
+
+  // Favorite State
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
   
   // UI State
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
@@ -46,6 +50,7 @@ export default function ShowDetailsPage() {
       // Reset per-show state so navigating from one show to another (e.g. via search) never shows stale status
       setIsInWatchlist(false);
       setIsShowCompleted(false);
+      setIsFavorite(false);
       setWatchedSeasons(new Set());
       setWatchedEpisodes(new Set());
       setExpandedSeason(null);
@@ -62,7 +67,7 @@ export default function ShowDetailsPage() {
         
         if (session) {
           const showIdStr = data.id.toString();
-          const [watchlistRes, completedRes, seasonsRes, episodesRes] = await Promise.all([
+          const [watchlistRes, completedRes, seasonsRes, episodesRes, favoriteRes] = await Promise.all([
             // 1. Check Watchlist
             supabase
               .from('watchlist')
@@ -91,11 +96,20 @@ export default function ShowDetailsPage() {
               .select('episode_id')
               .eq('show_id', showIdStr)
               .eq('user_id', session.user.id),
+            // 5. Check Favorites
+            supabase
+              .from('favorites')
+              .select('id')
+              .eq('media_id', showIdStr)
+              .eq('media_type', 'tv')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
           ]);
           if (cancelled) return;
 
           setIsInWatchlist(!!watchlistRes.data);
           setIsShowCompleted(!!completedRes.data);
+          setIsFavorite(!!favoriteRes.data);
           if (seasonsRes.data) setWatchedSeasons(new Set(seasonsRes.data.map(s => s.season_number)));
           if (episodesRes.data) setWatchedEpisodes(new Set(episodesRes.data.map(ep => ep.episode_id)));
         }
@@ -185,6 +199,54 @@ export default function ShowDetailsPage() {
       }
     }
     setIsToggling(false);
+  };
+
+  const handleToggleFavorite = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please sign in to save favorites!");
+      navigate('/auth');
+      return;
+    }
+
+    setIsTogglingFavorite(true);
+    const showIdStr = show.id.toString();
+
+    if (isFavorite) {
+      const { error } = await supabase
+        .from('favorites')
+        .delete()
+        .eq('media_id', showIdStr)
+        .eq('media_type', 'tv')
+        .eq('user_id', session.user.id);
+
+      if (error) {
+        toast.error("Failed to remove from favorites.");
+      } else {
+        setIsFavorite(false);
+        toast.success("Removed from favorites");
+      }
+    } else {
+      const { error } = await supabase
+        .from('favorites')
+        .insert([{
+          user_id: session.user.id,
+          media_id: showIdStr,
+          media_type: 'tv',
+          title: show.name,
+          poster_path: show.poster_path ?? null,
+          release_year: show.first_air_date ? show.first_air_date.substring(0, 4) : null,
+          vote_average: show.vote_average ?? null,
+        }]);
+
+      if (!isOk(error)) {
+        toast.error("Failed to add to favorites.");
+      } else {
+        setIsFavorite(true);
+        toast.success("Added to favorites!");
+      }
+    }
+    setIsTogglingFavorite(false);
   };
 
   const handleToggleShowCompleted = async () => {
@@ -558,6 +620,17 @@ export default function ShowDetailsPage() {
                 {/* Show Completed Toggle */}
                 <button onClick={handleToggleShowCompleted} disabled={isTogglingShowCompleted} className={`px-8 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 ${isShowCompleted ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 hover:bg-emerald-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}>
                   {isTogglingShowCompleted ? 'Updating...' : isShowCompleted ? '✓ Show Completed' : 'Mark Show as Completed'}
+                </button>
+
+                {/* Favorite Button */}
+                <button
+                  onClick={handleToggleFavorite}
+                  disabled={isTogglingFavorite}
+                  aria-pressed={isFavorite}
+                  className={`px-6 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 border-2 ${isFavorite ? 'bg-rose-500/10 text-rose-500 border-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
+                >
+                  <span>{isFavorite ? '♥' : '♡'}</span>
+                  {isTogglingFavorite ? 'Updating...' : isFavorite ? 'Favorited' : 'Favorite'}
                 </button>
 
                 {/* Trailer Button */}
