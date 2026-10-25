@@ -9,6 +9,7 @@ import MovieDetailsPage from './pages/MovieDetailsPage';
 import QueuePage from './pages/QueuePage';
 import ProfilePage from './pages/ProfilePage';
 import ShowDetailsPage from './pages/ShowDetailsPage';
+import PublicProfilePage from './pages/PublicProfilePage';
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
               <Route path="/movie/:id" element={<MovieDetailsPage />} />
               <Route path="/queue" element={<QueuePage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/u/:username" element={<PublicProfilePage />} />
               <Route path="/tv/:id" element={<ShowDetailsPage />} />
             </Routes>
           </main>

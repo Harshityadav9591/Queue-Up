@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { getImageUrl } from '../lib/tmdb';
-import { backfillRuntimes, formatDuration } from '../lib/watchTime';
+import { backfillRuntimes } from '../lib/watchTime';
+import MediaRow from '../components/profile/MediaRow';
+import WatchTimeCard from '../components/profile/WatchTimeCard';
 import toast from 'react-hot-toast';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -10,202 +11,7 @@ const MAX_IMAGE_BYTES = { avatar: 2 * 1024 * 1024, banner: 5 * 1024 * 1024 };
 const NICKNAME_MAX = 40;
 const BIO_MAX = 200;
 const ROW_LIMIT = 200;
-
-const ZERO_ENTRY = { movie: { minutes: 0, items: 0 }, tv: { minutes: 0, items: 0 } };
-
-// Turns the rows returned by get_watch_stats() into lookup[grain][period][kind]
-function buildStatsLookup(rows) {
-  const lookup = { all: {}, year: {}, month: {} };
-  (rows || []).forEach((r) => {
-    const bucket = lookup[r.grain];
-    if (!bucket) return;
-    if (!bucket[r.period]) bucket[r.period] = { movie: { minutes: 0, items: 0 }, tv: { minutes: 0, items: 0 } };
-    bucket[r.period][r.kind] = { minutes: Number(r.minutes), items: Number(r.items) };
-  });
-  return lookup;
-}
-
-const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
-// ---------- Horizontal poster row ----------
-function MediaRow({ title, items, emptyText, tabs }) {
-  return (
-    <section className="mt-12">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-2xl font-black text-slate-900 dark:text-white">
-          {title}{' '}
-          <span className="text-base font-bold text-slate-400 dark:text-slate-500">
-            ({items.length}{items.length >= ROW_LIMIT ? '+' : ''})
-          </span>
-        </h2>
-
-        {tabs && (
-          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
-            {tabs.options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => tabs.onChange(opt.value)}
-                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
-                  tabs.value === opt.value
-                    ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {items.length === 0 ? (
-        <div className="flex justify-center items-center h-32 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-white/5">
-          <p className="font-medium text-slate-500 dark:text-slate-400">{emptyText}</p>
-        </div>
-      ) : (
-        <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-hide">
-          {items.map((item) => (
-            <Link
-              key={item.key}
-              to={`/${item.type}/${item.id}`}
-              className="group w-[140px] min-w-[140px] flex-shrink-0 snap-start"
-            >
-              <div className="aspect-[2/3] overflow-hidden rounded-xl border border-slate-200 dark:border-white/10 bg-slate-200 dark:bg-slate-800 shadow-sm group-hover:shadow-lg transition-all">
-                <img
-                  src={getImageUrl(item.poster_path, 'w342')}
-                  alt={item.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  onError={(e) => { e.target.src = '/movie-poster.jpg'; }}
-                />
-              </div>
-              <p className="mt-2 text-sm font-bold text-slate-900 dark:text-white truncate" title={item.title}>{item.title}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {item.release_year || 'N/A'}
-                {Number(item.vote_average) > 0 && ` • ★ ${Number(item.vote_average).toFixed(1)}`}
-              </p>
-            </Link>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ---------- Watch time card ----------
-function WatchTimeCard({ rows, calculating }) {
-  const [period, setPeriod] = useState('all');
-  const lookup = useMemo(() => buildStatsLookup(rows), [rows]);
-
-  const now = new Date();
-  const grain = period === 'all' ? 'all' : period;
-  const periodKey = period === 'all' ? 'all' : period === 'year' ? String(now.getFullYear()) : monthKey(now);
-  const entry = lookup[grain][periodKey] || ZERO_ENTRY;
-
-  // Time from before watch dates were tracked is only included in "All time"
-  const allEntry = lookup.all.all || ZERO_ENTRY;
-  const datedTotal = Object.values(lookup.year).reduce((sum, e) => sum + e.movie.minutes + e.tv.minutes, 0);
-  const undatedMinutes = Math.max(0, allEntry.movie.minutes + allEntry.tv.minutes - datedTotal);
-
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
-    const e = lookup.month[monthKey(d)] || ZERO_ENTRY;
-    return {
-      key: monthKey(d),
-      label: d.toLocaleString(undefined, { month: 'short' }),
-      title: d.toLocaleString(undefined, { month: 'long', year: 'numeric' }),
-      movie: e.movie.minutes,
-      tv: e.tv.minutes,
-    };
-  });
-  const maxMonth = Math.max(1, ...months.map((m) => m.movie + m.tv));
-
-  const periods = [
-    { value: 'all', label: 'All time' },
-    { value: 'year', label: 'This year' },
-    { value: 'month', label: 'This month' },
-  ];
-
-  return (
-    <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-[#0b101e] dark:to-slate-900 border border-slate-700 dark:border-white/10 rounded-xl p-6 md:p-8 shadow-xl">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <h3 className="text-white font-bold text-lg mb-1">Total Watch Time</h3>
-          <p className="text-slate-400 text-sm">Built from the movies and episodes you have marked as watched.</p>
-        </div>
-        <div className="flex bg-black/30 p-1 rounded-lg border border-white/10 w-fit">
-          {periods.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
-                period === p.value ? 'bg-[#00f0ff] text-[#0b101e]' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Movies</p>
-          <p className="text-2xl font-black text-[#00f0ff]">{formatDuration(entry.movie.minutes)}</p>
-          <p className="text-slate-500 text-xs mt-1">{entry.movie.items} watched</p>
-        </div>
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">TV Shows</p>
-          <p className="text-2xl font-black text-purple-400">{formatDuration(entry.tv.minutes)}</p>
-          <p className="text-slate-500 text-xs mt-1">{entry.tv.items} episodes</p>
-        </div>
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Total</p>
-          <p className="text-2xl font-black text-white">
-            <span className="mr-1">⏱</span>{formatDuration(entry.movie.minutes + entry.tv.minutes)}
-          </p>
-          <p className="text-slate-500 text-xs mt-1">1 month = 30 days</p>
-        </div>
-      </div>
-
-      {period === 'all' && undatedMinutes > 0 && (
-        <p className="text-slate-500 text-xs italic mt-2">
-          Includes {formatDuration(undatedMinutes)} watched before dates were tracked (it can't be placed in a month or year).
-        </p>
-      )}
-      {calculating && (
-        <p className="text-amber-400 text-xs font-medium mt-2">
-          Calculating runtimes for your watch history… these numbers will update when it finishes.
-        </p>
-      )}
-
-      {/* Last 12 months */}
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold">Last 12 months</p>
-          <div className="flex items-center gap-4 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-[#00f0ff]"></span>Movies</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-purple-400"></span>Shows</span>
-          </div>
-        </div>
-        <div className="flex items-end gap-1.5 sm:gap-2">
-          {months.map((m) => (
-            <div
-              key={m.key}
-              className="flex-1 flex flex-col items-center gap-1.5"
-              title={`${m.title}: ${formatDuration(m.movie)} movies, ${formatDuration(m.tv)} shows`}
-            >
-              <div className="w-full h-28 flex flex-col justify-end rounded-md bg-white/5 overflow-hidden">
-                <div className="w-full bg-purple-400" style={{ height: `${(m.tv / maxMonth) * 100}%`, minHeight: m.tv > 0 ? 2 : 0 }}></div>
-                <div className="w-full bg-[#00f0ff]" style={{ height: `${(m.movie / maxMonth) * 100}%`, minHeight: m.movie > 0 ? 2 : 0 }}></div>
-              </div>
-              <span className="text-[10px] sm:text-xs text-slate-400">{m.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
 // ---------- Page ----------
 export default function ProfilePage() {
@@ -217,13 +23,19 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
 
   // Profile (stored in the profiles table)
-  const [profile, setProfile] = useState({ nickname: null, bio: null, avatar_url: null, banner_url: null });
+  const [profile, setProfile] = useState({ nickname: null, bio: null, avatar_url: null, banner_url: null, username: null, is_public: false });
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [bioDraft, setBioDraft] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+
+  // Public profile settings
+  const [usernameDraft, setUsernameDraft] = useState('');
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [togglingPublic, setTogglingPublic] = useState(false);
+  const [followCounts, setFollowCounts] = useState({ followers: 0, following: 0 });
 
   // Counts, rows and watch time
   const [stats, setStats] = useState({ queueMovies: 0, queueShows: 0, watchedMovies: 0, completedShows: 0 });
@@ -262,7 +74,7 @@ export default function ProfilePage() {
         profileRes, qMovies, qShows, wMovies, cShows,
         watchlistRes, completedRes, favoritesRes, statsRes, pendingMovies, pendingEpisodes,
       ] = await Promise.all([
-        supabase.from('profiles').select('nickname, bio, avatar_url, banner_url').eq('id', uid).maybeSingle(),
+        supabase.from('profiles').select('nickname, bio, avatar_url, banner_url, username, is_public').eq('id', uid).maybeSingle(),
         supabase.from('watchlist').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('media_type', 'movie'),
         supabase.from('watchlist').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('media_type', 'tv'),
         supabase.from('watched_movies').select('id', { count: 'exact', head: true }).eq('user_id', uid),
@@ -285,10 +97,13 @@ export default function ProfilePage() {
           bio: (meta.quote || '').slice(0, BIO_MAX) || null,
           avatar_url: meta.avatar_url || null,
           banner_url: meta.banner_url || null,
+          username: null,
+          is_public: false,
         };
         await supabase.from('profiles').insert([{ id: uid, ...p }]);
       }
       setProfile(p);
+      setUsernameDraft(p.username || '');
 
       setStats({
         queueMovies: qMovies.count || 0,
@@ -309,6 +124,13 @@ export default function ProfilePage() {
 
       setWatchRows(statsRes.data || []);
       setLoading(false);
+
+      if (p.username) {
+        const { data: me } = await supabase.rpc('get_public_profile', { p_username: p.username });
+        if (mounted.current && me?.[0]) {
+          setFollowCounts({ followers: Number(me[0].followers_count), following: Number(me[0].following_count) });
+        }
+      }
 
       // Older watches have no saved runtime yet: look them up once, then refresh the totals
       const pending = (pendingMovies.count || 0) + (pendingEpisodes.count || 0);
@@ -331,6 +153,60 @@ export default function ProfilePage() {
     load();
     return () => { mounted.current = false; };
   }, [navigate]);
+
+  // --- Username & public/private switch ---
+  const handleSaveUsername = async () => {
+    const value = usernameDraft.trim().toLowerCase().replace(/^@/, '');
+    if (!USERNAME_RE.test(value)) {
+      return toast.error('Username must be 3-20 characters: lowercase letters, numbers or underscores.');
+    }
+    if (value === profile.username) return;
+
+    setSavingUsername(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ username: value, updated_at: new Date().toISOString() })
+      .eq('id', session.user.id);
+
+    if (error) {
+      if (error.code === '23505') toast.error('That username is already taken.');
+      else if (error.code === '23514') toast.error('That username is not allowed. Try another one.');
+      else toast.error(error.message);
+    } else {
+      setProfile((prev) => ({ ...prev, username: value }));
+      setUsernameDraft(value);
+      toast.success('Username saved!');
+    }
+    setSavingUsername(false);
+  };
+
+  const handleTogglePublic = async () => {
+    if (!profile.username) return toast.error('Choose a username first, then you can make your profile public.');
+
+    const next = !profile.is_public;
+    setTogglingPublic(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_public: next, updated_at: new Date().toISOString() })
+      .eq('id', session.user.id);
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      setProfile((prev) => ({ ...prev, is_public: next }));
+      toast.success(next ? 'Your profile is now public.' : 'Your profile is now private.');
+    }
+    setTogglingPublic(false);
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/u/${profile.username}`);
+      toast.success('Link copied!');
+    } catch {
+      toast.error('Could not copy. Select the link and copy it manually.');
+    }
+  };
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -534,6 +410,78 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
+
+            {/* --- PUBLIC PROFILE SETTINGS --- */}
+            <section className="mt-10 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+                <div className="flex-1">
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white mb-1">Public profile</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    When public, anyone with your link can see your queue, completed list, favorites and watch time, and can follow you.
+                    Your email is never shown. When private, only you can see your profile.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={profile.is_public}
+                  aria-label="Make my profile public"
+                  onClick={handleTogglePublic}
+                  disabled={togglingPublic}
+                  className="flex items-center gap-3 flex-shrink-0 disabled:opacity-60"
+                >
+                  <span className={`relative inline-block w-14 h-8 rounded-full transition-colors ${profile.is_public ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
+                    <span className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow transition-transform ${profile.is_public ? 'translate-x-6' : ''}`}></span>
+                  </span>
+                  <span className="font-bold text-slate-900 dark:text-white w-16 text-left">
+                    {profile.is_public ? 'Public' : 'Private'}
+                  </span>
+                </button>
+              </div>
+
+              <div className="mt-6">
+                <label htmlFor="username-input" className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Username</label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden focus-within:border-blue-500 dark:focus-within:border-[#00f0ff] transition-colors">
+                    <span className="pl-3 text-slate-400 font-bold">@</span>
+                    <input
+                      id="username-input"
+                      type="text"
+                      value={usernameDraft}
+                      maxLength={20}
+                      onChange={(e) => setUsernameDraft(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); }}
+                      placeholder="yourname"
+                      className="bg-transparent text-slate-900 dark:text-white px-2 py-2 focus:outline-none w-44"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveUsername}
+                    disabled={savingUsername || usernameDraft === (profile.username || '')}
+                    className="bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm disabled:opacity-50"
+                  >
+                    {savingUsername ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">3-20 characters: lowercase letters, numbers and underscores. Changing it changes your profile link.</p>
+              </div>
+
+              {profile.username && (
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <code className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm px-3 py-2 rounded-lg break-all">
+                    {window.location.origin}/u/{profile.username}
+                  </code>
+                  <button onClick={handleCopyLink} className="text-sm font-bold text-blue-600 dark:text-[#00f0ff] hover:underline">Copy link</button>
+                  <Link to={`/u/${profile.username}`} className="text-sm font-bold text-blue-600 dark:text-[#00f0ff] hover:underline">
+                    {profile.is_public ? 'View public page' : 'Preview'}
+                  </Link>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">
+                    {followCounts.followers} followers • {followCounts.following} following
+                  </span>
+                </div>
+              )}
+            </section>
 
             {/* --- ANALYTICS SECTION --- */}
             <div className="mt-10">
