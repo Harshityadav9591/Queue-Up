@@ -153,8 +153,8 @@ export async function getMovieDetails(id) {
   if (!import.meta.env.VITE_TMDB_API_KEY || !id) return null;
 
   try {
-    // append_to_response fetches the cast (credits) and trailers (videos) in the same request
-    const response = await fetch(`${BASE_URL}/movie/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
+    // append_to_response fetches the cast, trailers, photos, reviews and similar titles in the same request
+    const response = await fetch(`${BASE_URL}/movie/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos,images,reviews,similar,recommendations&include_image_language=en,null`);
     
     if (!response.ok) {
       console.error("TMDB Details API Error:", response.statusText);
@@ -171,7 +171,7 @@ export async function getMovieDetails(id) {
 // Fetch TV Show / Anime Details
 export async function getShowDetails(id) {
   try {
-    const res = await fetch(`${BASE_URL}/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos`);
+    const res = await fetch(`${BASE_URL}/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos,images,reviews,similar,recommendations&include_image_language=en,null`);
     return await res.json();
   } catch (error) {
     console.error("Error fetching show details:", error);

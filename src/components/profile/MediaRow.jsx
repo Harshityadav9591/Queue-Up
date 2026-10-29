@@ -4,19 +4,21 @@ import { getImageUrl } from '../../lib/tmdb';
 const ROW_LIMIT = 200;
 
 // ---------- Horizontal poster row ----------
-export default function MediaRow({ title, items, emptyText, tabs }) {
+export default function MediaRow({ title, items, emptyText, tabs, showCount = true }) {
   return (
     <section className="mt-12">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h2 className="text-2xl font-black text-slate-900 dark:text-white">
-          {title}{' '}
-          <span className="text-base font-bold text-slate-400 dark:text-slate-500">
-            ({items.length}{items.length >= ROW_LIMIT ? '+' : ''})
-          </span>
+          {title}
+          {showCount && (
+            <span className="text-base font-bold text-slate-400 dark:text-slate-500">
+              {' '}({items.length}{items.length >= ROW_LIMIT ? '+' : ''})
+            </span>
+          )}
         </h2>
 
         {tabs && (
-          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
+          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg transition-colors">
             {tabs.options.map((opt) => (
               <button
                 key={opt.value}
@@ -35,7 +37,7 @@ export default function MediaRow({ title, items, emptyText, tabs }) {
       </div>
 
       {items.length === 0 ? (
-        <div className="flex justify-center items-center h-32 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-white/5">
+        <div className="flex justify-center items-center h-32 bg-slate-100 dark:bg-slate-800/40 rounded-xl">
           <p className="font-medium text-slate-500 dark:text-slate-400">{emptyText}</p>
         </div>
       ) : (
@@ -46,7 +48,7 @@ export default function MediaRow({ title, items, emptyText, tabs }) {
               to={`/${item.type}/${item.id}`}
               className="group w-[140px] min-w-[140px] flex-shrink-0 snap-start"
             >
-              <div className="aspect-[2/3] overflow-hidden rounded-xl border border-slate-200 dark:border-white/10 bg-slate-200 dark:bg-slate-800 shadow-sm group-hover:shadow-lg transition-all">
+              <div className="aspect-[2/3] overflow-hidden rounded-xl bg-slate-200 dark:bg-slate-800">
                 <img
                   src={getImageUrl(item.poster_path, 'w342')}
                   alt={item.title}

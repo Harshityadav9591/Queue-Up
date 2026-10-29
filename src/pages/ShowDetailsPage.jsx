@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getShowDetails, getSeasonDetails, getImageUrl } from '../lib/tmdb';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import DetailsExtras from '../components/details/DetailsExtras';
 
 // Postgres unique-violation: the row is already there, which is fine for our purposes
 const isOk = (error) => !error || error.code === '23505';
@@ -22,6 +23,10 @@ export default function ShowDetailsPage() {
   // Favorite State
   const [isFavorite, setIsFavorite] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+
+  // Extra watches (rewatches) of a show already in the Completed Vault
+  const [rewatchCount, setRewatchCount] = useState(0);
+  const [isChangingRewatch, setIsChangingRewatch] = useState(false);
   
   // UI State
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
@@ -51,6 +56,7 @@ export default function ShowDetailsPage() {
       setIsInWatchlist(false);
       setIsShowCompleted(false);
       setIsFavorite(false);
+      setRewatchCount(0);
       setWatchedSeasons(new Set());
       setWatchedEpisodes(new Set());
       setExpandedSeason(null);
@@ -76,10 +82,10 @@ export default function ShowDetailsPage() {
               .eq('media_type', 'tv')
               .eq('user_id', session.user.id)
               .maybeSingle(),
-            // 2. Check Completed Vault
+            // 2. Check Completed Vault (and how many extra times it has been watched)
             supabase
               .from('completed_items')
-              .select('id')
+              .select('id, rewatch_count')
               .eq('media_id', showIdStr)
               .eq('media_type', 'tv')
               .eq('user_id', session.user.id)
@@ -109,6 +115,7 @@ export default function ShowDetailsPage() {
 
           setIsInWatchlist(!!watchlistRes.data);
           setIsShowCompleted(!!completedRes.data);
+          setRewatchCount(completedRes.data?.rewatch_count ?? 0);
           setIsFavorite(!!favoriteRes.data);
           if (seasonsRes.data) setWatchedSeasons(new Set(seasonsRes.data.map(s => s.season_number)));
           if (episodesRes.data) setWatchedEpisodes(new Set(episodesRes.data.map(ep => ep.episode_id)));
@@ -201,6 +208,31 @@ export default function ShowDetailsPage() {
     setIsToggling(false);
   };
 
+  // Adds (+1) or removes (-1) one extra watch. The database clamps it between 0 and 99.
+  const handleChangeRewatch = async (delta) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please sign in to track watches!");
+      navigate('/auth');
+      return;
+    }
+
+    setIsChangingRewatch(true);
+    const { data, error } = await supabase.rpc('change_rewatch_count', {
+      p_media_id: show.id.toString(),
+      p_media_type: 'tv',
+      p_delta: delta,
+    });
+
+    if (error) {
+      toast.error("Couldn't update your watch count. Please try again.");
+    } else {
+      setRewatchCount(data);
+      toast.success(delta > 0 ? 'Logged another watch!' : 'Removed one watch.');
+    }
+    setIsChangingRewatch(false);
+  };
+
   const handleToggleFavorite = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -270,6 +302,7 @@ export default function ShowDetailsPage() {
         toast.error("Failed to remove from completed history.");
       } else {
         setIsShowCompleted(false);
+        setRewatchCount(0);
         toast.success("Removed from completed history");
       }
     } else {
@@ -622,6 +655,33 @@ export default function ShowDetailsPage() {
                   {isTogglingShowCompleted ? 'Updating...' : isShowCompleted ? '✓ Show Completed' : 'Mark Show as Completed'}
                 </button>
 
+                {/* Watched again: appears once this is in your Completed Vault */}
+                {isShowCompleted && (
+                  <div className="flex items-stretch gap-2">
+                    <button
+                      onClick={() => handleChangeRewatch(1)}
+                      disabled={isChangingRewatch}
+                      className="px-6 py-3 rounded-lg font-bold text-lg transition-all flex items-center gap-2 border-2 border-transparent bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-60"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                      </svg>
+                      {rewatchCount === 0 ? 'Watched again' : rewatchCount === 1 ? 'Watched twice' : `Watched ${rewatchCount + 1} times`}
+                    </button>
+                    {rewatchCount > 0 && (
+                      <button
+                        onClick={() => handleChangeRewatch(-1)}
+                        disabled={isChangingRewatch}
+                        aria-label="Remove one watch"
+                        title="Remove one watch"
+                        className="w-12 rounded-lg font-bold text-xl transition-all bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-red-500 hover:text-white disabled:opacity-60"
+                      >
+                        −
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Favorite Button */}
                 <button
                   onClick={handleToggleFavorite}
@@ -705,13 +765,13 @@ export default function ShowDetailsPage() {
                               disabled={isTogglingWatched}
                               aria-label={isEpWatched ? 'Mark episode as not watched' : 'Mark episode as watched'}
                               title={isEpWatched ? 'Watched (click to undo)' : 'Mark as watched'}
-                              className={`absolute top-4 right-4 z-10 w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all disabled:opacity-60 ${
+                              className={`absolute top-4 right-4 md:top-1/2 md:-translate-y-1/2 z-10 w-11 h-11 rounded-full flex items-center justify-center border-2 transition-all disabled:opacity-60 ${
                                 isEpWatched
                                   ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
                                   : 'border-slate-300 dark:border-slate-600 text-transparent hover:border-emerald-500 hover:text-emerald-500'
                               }`}
                             >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                               </svg>
                             </button>
@@ -726,7 +786,7 @@ export default function ShowDetailsPage() {
                                  {episode.runtime ? `${episode.runtime}m` : ''}
                                </div>
                             </div>
-                            <div className="flex-grow pr-14">
+                            <div className="flex-grow pr-16">
                               <h5 className="font-bold text-lg text-slate-900 dark:text-white transition-colors">
                                 <span className="text-blue-600 dark:text-slate-400 mr-2">{episode.episode_number}.</span>
                                 {episode.name}
@@ -804,6 +864,9 @@ export default function ShowDetailsPage() {
           </div>
         </div>
       )}
+
+      {/* Photos, rating, reviews and similar shows. key resets its open/closed state when you move to another show */}
+      <DetailsExtras key={show.id} item={show} mediaType="tv" />
 
       {/* Main Trailer Modal Overlay */}
       {isTrailerOpen && trailer && (

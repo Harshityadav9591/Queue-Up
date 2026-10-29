@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getMovieDetails, getImageUrl } from '../lib/tmdb';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import DetailsExtras from '../components/details/DetailsExtras';
 
 export default function MovieDetailsPage() {
   const { id } = useParams();
@@ -22,6 +23,11 @@ export default function MovieDetailsPage() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
 
+  // Extra watches (rewatches) of something already in the Completed Vault
+  const [rewatchCount, setRewatchCount] = useState(0);
+  const [isInVault, setIsInVault] = useState(false);
+  const [isChangingRewatch, setIsChangingRewatch] = useState(false);
+
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
 
   useEffect(() => {
@@ -33,6 +39,8 @@ export default function MovieDetailsPage() {
       setIsInWatchlist(false);
       setIsWatched(false);
       setIsFavorite(false);
+      setRewatchCount(0);
+      setIsInVault(false);
 
       const data = await getMovieDetails(id);
       if (cancelled) return;
@@ -43,7 +51,7 @@ export default function MovieDetailsPage() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
-          const [watchlistRes, watchedRes, favoriteRes] = await Promise.all([
+          const [watchlistRes, watchedRes, favoriteRes, rewatchRes] = await Promise.all([
             // Check Watchlist
             supabase
               .from('watchlist')
@@ -67,12 +75,22 @@ export default function MovieDetailsPage() {
               .eq('media_type', 'movie')
               .eq('user_id', session.user.id)
               .maybeSingle(),
+            // Extra watches
+            supabase
+              .from('completed_items')
+              .select('rewatch_count')
+              .eq('media_id', data.id.toString())
+              .eq('media_type', 'movie')
+              .eq('user_id', session.user.id)
+              .maybeSingle(),
           ]);
           if (cancelled) return;
 
           setIsInWatchlist(!!watchlistRes.data);
           setIsWatched(!!watchedRes.data);
           setIsFavorite(!!favoriteRes.data);
+          setRewatchCount(rewatchRes.data?.rewatch_count ?? 0);
+          setIsInVault(!!rewatchRes.data);
         }
       }
       setLoading(false);
@@ -141,6 +159,53 @@ export default function MovieDetailsPage() {
       }
     }
     setIsToggling(false);
+  };
+
+  // Adds (+1) or removes (-1) one extra watch. The database clamps it between 0 and 99.
+  const handleChangeRewatch = async (delta) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please sign in to track watches!");
+      navigate('/auth');
+      return;
+    }
+
+    setIsChangingRewatch(true);
+
+    // Movies marked as watched in the older system may have no Completed Vault row yet.
+    // complete_item is safe to repeat, so create the row first.
+    if (!isInVault) {
+      const { error: vaultError } = await supabase.rpc('complete_item', {
+        p_media_id: movie.id.toString(),
+        p_media_type: 'movie',
+        p_title: movie.title,
+        p_poster_path: movie.poster_path ?? null,
+        p_release_year: movie.release_date ? movie.release_date.substring(0, 4) : null,
+        p_vote_average: movie.vote_average ?? null,
+        p_runtime_minutes: movie.runtime ?? null,
+      });
+      if (vaultError) {
+        toast.error("Couldn't update your watch count. Please try again.");
+        setIsChangingRewatch(false);
+        return;
+      }
+      setIsInVault(true);
+      setIsInWatchlist(false);
+    }
+
+    const { data, error } = await supabase.rpc('change_rewatch_count', {
+      p_media_id: movie.id.toString(),
+      p_media_type: 'movie',
+      p_delta: delta,
+    });
+
+    if (error) {
+      toast.error("Couldn't update your watch count. Please try again.");
+    } else {
+      setRewatchCount(data);
+      toast.success(delta > 0 ? 'Logged another watch!' : 'Removed one watch.');
+    }
+    setIsChangingRewatch(false);
   };
 
   const handleToggleFavorite = async () => {
@@ -214,6 +279,8 @@ export default function MovieDetailsPage() {
         toast.error("Couldn't remove from watched history. Please try again.");
       } else {
         setIsWatched(false);
+        setRewatchCount(0);
+        setIsInVault(false);
         toast.success("Removed from watched history");
       }
     } else {
@@ -233,6 +300,7 @@ export default function MovieDetailsPage() {
         toast.error("Failed to mark as watched. Please try again.");
       } else {
         setIsWatched(true);
+        setIsInVault(true);
         setIsInWatchlist(false);
         toast.success("Marked as watched & moved to Completed Vault!");
       }
@@ -284,6 +352,33 @@ export default function MovieDetailsPage() {
                   {isTogglingWatched ? 'Updating...' : isWatched ? '✓ Watched' : 'Mark as Watched'}
                 </button>
 
+                {/* Watched again: appears once this is in your Completed Vault */}
+                {isWatched && (
+                  <div className="flex items-stretch gap-2">
+                    <button
+                      onClick={() => handleChangeRewatch(1)}
+                      disabled={isChangingRewatch}
+                      className="px-6 py-3 rounded-lg font-bold text-lg transition-all flex items-center gap-2 border-2 border-transparent bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-60"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                      </svg>
+                      {rewatchCount === 0 ? 'Watched again' : rewatchCount === 1 ? 'Watched twice' : `Watched ${rewatchCount + 1} times`}
+                    </button>
+                    {rewatchCount > 0 && (
+                      <button
+                        onClick={() => handleChangeRewatch(-1)}
+                        disabled={isChangingRewatch}
+                        aria-label="Remove one watch"
+                        title="Remove one watch"
+                        className="w-12 rounded-lg font-bold text-xl transition-all bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-red-500 hover:text-white disabled:opacity-60"
+                      >
+                        −
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Favorite Button */}
                 <button
                   onClick={handleToggleFavorite}
@@ -329,6 +424,9 @@ export default function MovieDetailsPage() {
           </div>
         </div>
       )}
+
+      {/* Photos, rating, reviews and similar titles. key resets its open/closed state when you move to another movie */}
+      <DetailsExtras key={movie.id} item={movie} mediaType="movie" />
 
       {/* Trailer Modal */}
       {isTrailerOpen && trailer && (
