@@ -155,7 +155,6 @@ export default function Navbar() {
             <button onClick={toggleTheme} className="text-4xl mb-4">{isDarkMode ? '☀️' : '🌙'}</button>
             <div className="w-full max-w-sm">
               <SearchDropdown
-                placeholder="Search movies, shows..."
                 onNavigate={() => setIsMobileMenuOpen(false)}
                 inputClassName="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-full px-5 py-3 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] transition-colors"
               />

@@ -56,7 +56,7 @@ export default function WatchTimeCard({ rows, calculating }) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <h3 className="text-white font-bold text-lg mb-1">Total Watch Time</h3>
-          <p className="text-slate-400 text-sm">Built from the movies and episodes you have marked as watched.</p>
+          <p className="text-slate-400 text-sm">Built from the movies and episodes you have marked as watched, plus anything you watched again.</p>
         </div>
         <div className="flex bg-black/30 p-1 rounded-lg border border-white/10 w-fit">
           {periods.map((p) => (
