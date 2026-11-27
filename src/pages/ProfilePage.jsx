@@ -5,6 +5,8 @@ import { backfillRuntimes } from '../lib/watchTime';
 import MediaRow from '../components/profile/MediaRow';
 import WatchTimeCard from '../components/profile/WatchTimeCard';
 import toast from 'react-hot-toast';
+import Avatar from '../components/ui/Avatar';
+import Icon from '../components/ui/Icon';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_IMAGE_BYTES = { avatar: 2 * 1024 * 1024, banner: 5 * 1024 * 1024 };
@@ -292,7 +294,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] flex justify-center items-center"><p className="text-2xl font-bold text-slate-900 dark:text-white">Loading...</p></div>;
+  if (loading) return <ProfileSkeleton />;
 
   const moviesRow = moviesTab === 'queue' ? rows.queueMovies : rows.completedMovies;
   const showsRow = showsTab === 'queue' ? rows.queueShows : rows.completedShows;
@@ -300,243 +302,263 @@ export default function ProfilePage() {
     { value: 'queue', label: 'In queue' },
     { value: 'completed', label: 'Completed' },
   ];
+  const displayName = profile.nickname || 'My Account';
+  const profileLink = profile.username ? `${window.location.origin}/u/${profile.username}` : '';
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] py-24 px-4 sm:px-6 transition-colors duration-500">
-      <div className="container mx-auto max-w-5xl">
+    <div className="wrap pt-2 sm:pt-4">
 
-        {/* Main Profile Container */}
-        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500">
+      {/* --- BANNER UPLOAD --- */}
+      <label className="group relative block aspect-[5/2] cursor-pointer overflow-hidden rounded-[24px] bg-surface sm:aspect-[4/1]">
+        {profile.banner_url ? (
+          <img src={profile.banner_url} alt="Profile banner" className="h-full w-full object-cover transition-transform duration-700 ease-out-soft group-hover:scale-[1.02]" />
+        ) : (
+          <span className="flex h-full items-start p-5 text-[15px] font-semibold text-muted sm:p-7">
+            <span className="inline-flex items-center gap-2"><Icon name="image" className="h-5 w-5" /> Add a banner image</span>
+          </span>
+        )}
+        <span className="btn btn-sm absolute bottom-4 right-4 bg-ground text-ink opacity-100 transition-opacity duration-300 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+          <Icon name="image" />
+          {uploadingBanner ? 'Uploading…' : profile.banner_url ? 'Change banner' : 'Upload'}
+        </span>
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => uploadImage(e, 'banner')} disabled={uploadingBanner} className="sr-only" />
+      </label>
 
-          {/* --- BANNER UPLOAD SECTION --- */}
-          <label className="block h-48 md:h-64 w-full relative group cursor-pointer bg-slate-200 dark:bg-slate-800 overflow-hidden">
-            {profile.banner_url ? (
-              <img src={profile.banner_url} alt="Profile Banner" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-r from-slate-800 to-slate-900 flex items-center justify-center">
-                <span className="text-slate-500 font-medium tracking-widest uppercase text-sm">Add Banner Image</span>
-              </div>
-            )}
-
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <span className="text-white font-bold bg-black/60 px-4 py-2 rounded-lg backdrop-blur-sm">
-                {uploadingBanner ? 'Uploading...' : 'Change Banner'}
-              </span>
-            </div>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => uploadImage(e, 'banner')} disabled={uploadingBanner} className="hidden" />
+      {/* --- IDENTITY: avatar, name, email, actions --- */}
+      <div className="relative -mt-12 flex flex-col gap-5 px-1 sm:-mt-16 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+        <div className="flex min-w-0 items-end gap-4 sm:gap-6">
+          <label className="group relative h-28 w-28 flex-none cursor-pointer overflow-hidden rounded-full ring-[6px] ring-ground sm:h-36 sm:w-36" title="Change your picture">
+            <Avatar url={profile.avatar_url} name={session?.user?.email || displayName} size="h-full w-full text-5xl" />
+            <span className="absolute inset-0 grid place-items-center bg-[var(--scrim)] text-sm font-semibold text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-within:opacity-100">
+              {uploadingAvatar ? 'Uploading…' : 'Change'}
+            </span>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => uploadImage(e, 'avatar')} disabled={uploadingAvatar} className="sr-only" />
           </label>
 
-          <div className="px-6 md:px-12 pb-12 relative">
-
-            {/* Top Row: Avatar & Actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end -mt-16 md:-mt-20 mb-8 gap-6 relative z-10">
-
-              {/* --- AVATAR UPLOAD --- */}
-              <label className="relative w-32 h-32 md:w-40 md:h-40 bg-slate-900 dark:bg-[#0b101e] rounded-full border-4 border-white dark:border-[#0b101e] flex items-center justify-center shadow-xl transition-colors duration-500 overflow-hidden cursor-pointer group flex-shrink-0">
-                {profile.avatar_url ? (
-                  <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-5xl">👤</span>
-                )}
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <span className="text-white text-sm font-bold">{uploadingAvatar ? '...' : 'Upload'}</span>
-                </div>
-                <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => uploadImage(e, 'avatar')} disabled={uploadingAvatar} className="hidden" />
-              </label>
-
-              <button onClick={handleSignOut} className="px-6 py-2.5 rounded-lg font-bold text-red-500 border-2 border-red-500/30 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all shadow-sm w-full md:w-auto">
-                Sign Out
-              </button>
-            </div>
-
-            {/* --- USER INFO (Name & Bio) --- */}
-            <div className="border-b border-slate-200 dark:border-white/10 pb-10 transition-colors">
-
-              {/* Nickname */}
-              {isEditingName ? (
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  <input
-                    type="text"
-                    value={nicknameDraft}
-                    maxLength={NICKNAME_MAX}
-                    onChange={(e) => setNicknameDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveText('nickname', nicknameDraft, setIsEditingName); }}
-                    className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg px-3 py-1.5 text-3xl font-black focus:outline-none w-full max-w-xs"
-                    autoFocus
-                  />
-                  <button onClick={() => handleSaveText('nickname', nicknameDraft, setIsEditingName)} className="bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm">Save</button>
-                  <button onClick={() => setIsEditingName(false)} className="text-slate-500 text-sm font-medium">Cancel</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">{profile.nickname || 'My Account'}</h1>
-                  <button
-                    onClick={() => { setNicknameDraft(profile.nickname || ''); setIsEditingName(true); }}
-                    className="text-slate-400 hover:text-blue-600 dark:hover:text-[#00f0ff] transition-colors"
-                    title="Edit Name"
-                  >✎</button>
-                </div>
-              )}
-
-              <p className="text-slate-500 dark:text-slate-400 font-medium mb-6">{session?.user?.email}</p>
-
-              {/* Bio */}
-              {isEditingBio ? (
-                <div className="flex flex-wrap items-center gap-3 mt-4">
-                  <input
-                    type="text"
-                    value={bioDraft}
-                    maxLength={BIO_MAX}
-                    onChange={(e) => setBioDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveText('bio', bioDraft, setIsEditingBio); }}
-                    placeholder="A country man, a humble ronin..."
-                    className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg px-3 py-1.5 text-md italic focus:outline-none w-full max-w-md"
-                    autoFocus
-                  />
-                  <button onClick={() => handleSaveText('bio', bioDraft, setIsEditingBio)} className="bg-emerald-500 text-white px-4 py-1.5 rounded-lg font-bold text-sm">Save</button>
-                  <button onClick={() => setIsEditingBio(false)} className="text-slate-500 text-sm font-medium">Cancel</button>
-                </div>
-              ) : (
-                <div className="flex items-start gap-2 mt-4 text-slate-700 dark:text-slate-300">
-                  <span className="text-blue-600 dark:text-[#00f0ff] font-serif text-2xl leading-none">❝</span>
-                  <p className="text-md italic font-medium pt-1">
-                    {profile.bio || 'Add a quote or bio to your profile...'}
-                  </p>
-                  <button
-                    onClick={() => { setBioDraft(profile.bio || ''); setIsEditingBio(true); }}
-                    className="text-slate-400 hover:text-blue-600 dark:hover:text-[#00f0ff] transition-colors ml-2 pt-1"
-                    title="Edit Bio"
-                  >✎</button>
-                </div>
-              )}
-            </div>
-
-            {/* --- PUBLIC PROFILE SETTINGS --- */}
-            <section className="mt-10 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 shadow-sm">
-              <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-                <div className="flex-1">
-                  <h2 className="text-xl font-black text-slate-900 dark:text-white mb-1">Public profile</h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    When public, anyone with your link can see your queue, completed list, favorites and watch time, and can follow you.
-                    Your email is never shown. When private, only you can see your profile.
-                  </p>
-                </div>
-
+          <div className="min-w-0 pb-1">
+            {isEditingName ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={nicknameDraft}
+                  maxLength={NICKNAME_MAX}
+                  aria-label="Nickname"
+                  onChange={(e) => setNicknameDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveText('nickname', nicknameDraft, setIsEditingName); }}
+                  className="field h-11 max-w-xs text-xl font-bold"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveText('nickname', nicknameDraft, setIsEditingName)} className="btn btn-primary btn-sm">Save</button>
+                <button onClick={() => setIsEditingName(false)} className="btn btn-ghost btn-sm">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <h1 className="truncate text-[28px] font-extrabold leading-tight tracking-[-0.035em] sm:text-[34px]">{displayName}</h1>
                 <button
-                  type="button"
-                  role="switch"
-                  aria-checked={profile.is_public}
-                  aria-label="Make my profile public"
-                  onClick={handleTogglePublic}
-                  disabled={togglingPublic}
-                  className="flex items-center gap-3 flex-shrink-0 disabled:opacity-60"
+                  onClick={() => { setNicknameDraft(profile.nickname || ''); setIsEditingName(true); }}
+                  className="icon-btn h-9 w-9 text-muted hover:text-ink"
+                  aria-label="Edit nickname"
+                  title="Edit nickname"
                 >
-                  <span className={`relative inline-block w-14 h-8 rounded-full transition-colors ${profile.is_public ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-                    <span className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow transition-transform ${profile.is_public ? 'translate-x-6' : ''}`}></span>
-                  </span>
-                  <span className="font-bold text-slate-900 dark:text-white w-16 text-left">
-                    {profile.is_public ? 'Public' : 'Private'}
-                  </span>
+                  <Icon name="pencil" className="h-[18px] w-[18px]" />
                 </button>
               </div>
-
-              <div className="mt-6">
-                <label htmlFor="username-input" className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Username</label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden focus-within:border-blue-500 dark:focus-within:border-[#00f0ff] transition-colors">
-                    <span className="pl-3 text-slate-400 font-bold">@</span>
-                    <input
-                      id="username-input"
-                      type="text"
-                      value={usernameDraft}
-                      maxLength={20}
-                      onChange={(e) => setUsernameDraft(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); }}
-                      placeholder="yourname"
-                      className="bg-transparent text-slate-900 dark:text-white px-2 py-2 focus:outline-none w-44"
-                    />
-                  </div>
-                  <button
-                    onClick={handleSaveUsername}
-                    disabled={savingUsername || usernameDraft === (profile.username || '')}
-                    className="bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm disabled:opacity-50"
-                  >
-                    {savingUsername ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">3-20 characters: lowercase letters, numbers and underscores. Changing it changes your profile link.</p>
-              </div>
-
-              {profile.username && (
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <code className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm px-3 py-2 rounded-lg break-all">
-                    {window.location.origin}/u/{profile.username}
-                  </code>
-                  <button onClick={handleCopyLink} className="text-sm font-bold text-blue-600 dark:text-[#00f0ff] hover:underline">Copy link</button>
-                  <Link to={`/u/${profile.username}`} className="text-sm font-bold text-blue-600 dark:text-[#00f0ff] hover:underline">
-                    {profile.is_public ? 'View public page' : 'Preview'}
-                  </Link>
-                  <span className="text-sm text-slate-500 dark:text-slate-400">
-                    {followCounts.followers} followers • {followCounts.following} following
-                  </span>
-                </div>
-              )}
-            </section>
-
-            {/* --- ANALYTICS SECTION --- */}
-            <div className="mt-10">
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-6">Stats & Analytics</h2>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6">
-                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 text-center shadow-sm">
-                  <p className="text-4xl font-black text-blue-600 dark:text-[#00f0ff] mb-2">{stats.queueMovies}</p>
-                  <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Movies in Queue</p>
-                </div>
-
-                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 text-center shadow-sm">
-                  <p className="text-4xl font-black text-purple-600 dark:text-purple-400 mb-2">{stats.queueShows}</p>
-                  <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Shows in Queue</p>
-                </div>
-
-                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 text-center shadow-sm">
-                  <p className="text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-2">{stats.watchedMovies}</p>
-                  <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Movies Watched</p>
-                </div>
-
-                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-xl p-6 text-center shadow-sm">
-                  <p className="text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-2">{stats.completedShows}</p>
-                  <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Shows Completed</p>
-                </div>
-              </div>
-
-              <WatchTimeCard rows={watchRows} calculating={calculating} />
-            </div>
-
-            {/* --- ROWS: Movies, Shows, Favorites --- */}
-            <MediaRow
-              title="Movies"
-              items={moviesRow}
-              emptyText={moviesTab === 'queue' ? 'No movies in your queue.' : 'No completed movies yet.'}
-              tabs={{ value: moviesTab, onChange: setMoviesTab, options: tabOptions }}
-            />
-
-            <MediaRow
-              title="Shows"
-              items={showsRow}
-              emptyText={showsTab === 'queue' ? 'No shows in your queue.' : 'No completed shows yet.'}
-              tabs={{ value: showsTab, onChange: setShowsTab, options: tabOptions }}
-            />
-
-            <MediaRow
-              title="Favorites"
-              items={rows.favorites}
-              emptyText="Nothing here yet. Use the ♡ Favorite button on any movie or show page."
-            />
-
+            )}
+            <p className="truncate text-[15px] text-muted">
+              {profile.username ? `@${profile.username} · ` : ''}{session?.user?.email}
+            </p>
           </div>
         </div>
 
+        <div className="flex flex-none gap-2 pb-1">
+          {profile.username && (
+            <Link to={`/u/${profile.username}`} className="btn btn-quiet btn-sm">
+              <Icon name={profile.is_public ? 'globe' : 'lock'} />
+              {profile.is_public ? 'View public page' : 'Preview public page'}
+            </Link>
+          )}
+          <button onClick={handleSignOut} className="btn btn-ghost btn-sm">
+            <Icon name="logout" />
+            Sign out
+          </button>
+        </div>
       </div>
+
+      {/* --- BIO --- */}
+      <div className="mt-6 max-w-2xl px-1 sm:px-6">
+        {isEditingBio ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={bioDraft}
+              maxLength={BIO_MAX}
+              aria-label="Bio"
+              onChange={(e) => setBioDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveText('bio', bioDraft, setIsEditingBio); }}
+              placeholder="A line about what you like to watch"
+              className="field max-w-md flex-1"
+              autoFocus
+            />
+            <button onClick={() => handleSaveText('bio', bioDraft, setIsEditingBio)} className="btn btn-primary btn-sm">Save</button>
+            <button onClick={() => setIsEditingBio(false)} className="btn btn-ghost btn-sm">Cancel</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setBioDraft(profile.bio || ''); setIsEditingBio(true); }}
+            className="group flex items-start gap-2 text-left"
+            title="Edit bio"
+          >
+            <p className={`text-[17px] leading-relaxed ${profile.bio ? '' : 'text-muted'}`}>
+              {profile.bio || 'Add a line about what you like to watch.'}
+            </p>
+            <Icon name="pencil" className="mt-1 h-4 w-4 flex-none text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+          </button>
+        )}
+      </div>
+
+      {/* --- COUNTS: one strip, split by hairlines --- */}
+      <section className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-[20px] bg-line lg:grid-cols-4" aria-label="Your lists in numbers">
+        {[
+          ['Movies in queue', stats.queueMovies],
+          ['Shows in queue', stats.queueShows],
+          ['Movies watched', stats.watchedMovies],
+          ['Shows completed', stats.completedShows],
+        ].map(([label, value]) => (
+          <div key={label} className="bg-surface p-5 sm:px-7">
+            <p className="text-[13px] text-muted">{label}</p>
+            <p className="num mt-1 text-[28px] font-bold leading-none tracking-[-0.02em]">{value}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="mt-3">
+        <WatchTimeCard rows={watchRows} calculating={calculating} />
+      </div>
+
+      {/* --- ROWS: Movies, Shows, Favorites --- */}
+      <MediaRow
+        title="Movies"
+        items={moviesRow}
+        emptyText={moviesTab === 'queue' ? 'No movies in your queue.' : 'No completed movies yet.'}
+        tabs={{ value: moviesTab, onChange: setMoviesTab, options: tabOptions }}
+      />
+
+      <MediaRow
+        title="Shows"
+        items={showsRow}
+        emptyText={showsTab === 'queue' ? 'No shows in your queue.' : 'No completed shows yet.'}
+        tabs={{ value: showsTab, onChange: setShowsTab, options: tabOptions }}
+      />
+
+      <MediaRow
+        title="Favorites"
+        items={rows.favorites}
+        emptyText="Nothing here yet. Use Add to favorites on any movie or show page."
+      />
+
+      {/* --- PUBLIC PROFILE SETTINGS --- */}
+      <section className="mt-16 grid gap-6 border-t border-line pt-10 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:gap-14" aria-labelledby="public-heading">
+        <div>
+          <h2 id="public-heading" className="text-xl font-bold">Public profile</h2>
+          <p className="mt-2 text-[15px] leading-relaxed text-muted">
+            When public, anyone with your link can see your queue, completed list, favorites and watch time, and can follow you.
+            Your email is never shown. When private, only you can see your profile.
+          </p>
+          {profile.username && (
+            <p className="mt-4 text-[15px]">
+              <span className="font-semibold">{followCounts.followers}</span> <span className="text-muted">{followCounts.followers === 1 ? 'follower' : 'followers'}</span>
+              <span className="mx-2 text-muted" aria-hidden="true">·</span>
+              <span className="font-semibold">{followCounts.following}</span> <span className="text-muted">following</span>
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-[20px] bg-surface p-5 sm:p-6">
+          {/* Switch row */}
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p className="flex items-center gap-2 text-[15px] font-semibold">
+                Show my profile to anyone with the link
+                <span className="inline-flex h-6 items-center gap-1 rounded-full bg-ground px-2.5 text-xs font-semibold" style={profile.is_public ? { background: 'var(--data-soft)' } : undefined}>
+                  <Icon name={profile.is_public ? 'globe' : 'lock'} className="h-3.5 w-3.5" />
+                  {profile.is_public ? 'Public' : 'Private'}
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-muted">{profile.username ? 'You can switch back to private at any time.' : 'Choose a username first.'}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={profile.is_public}
+              aria-label="Make my profile public"
+              onClick={handleTogglePublic}
+              disabled={togglingPublic}
+              className={`relative mt-0.5 h-7 w-12 flex-none rounded-full transition-colors duration-300 disabled:opacity-60 ${profile.is_public ? 'bg-ink' : 'bg-raised'}`}
+            >
+              <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-ground transition-transform duration-300 ease-out-soft ${profile.is_public ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
+          {/* Username */}
+          <div className="mt-7">
+            <label htmlFor="username-input" className="label">Username</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex h-11 items-center rounded-[12px] bg-lift pl-4 transition-shadow focus-within:shadow-[0_0_0_2px_var(--ink)]">
+                <span className="font-semibold text-muted">@</span>
+                <input
+                  id="username-input"
+                  type="text"
+                  value={usernameDraft}
+                  maxLength={20}
+                  onChange={(e) => setUsernameDraft(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveUsername(); }}
+                  placeholder="yourname"
+                  className="h-full w-48 bg-transparent pl-1 pr-4 text-[16px] focus:outline-none"
+                />
+              </div>
+              <button
+                onClick={handleSaveUsername}
+                disabled={savingUsername || usernameDraft === (profile.username || '')}
+                className="btn btn-primary"
+              >
+                {savingUsername ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            <p className="mt-2 text-[13px] text-muted">3 to 20 characters: lowercase letters, numbers and underscores. Changing it changes your profile link.</p>
+          </div>
+
+          {/* Share link: the address and its Copy button share one edge */}
+          {profile.username && (
+            <div className="mt-6">
+              <p className="label">Your link</p>
+              <div className="flex max-w-xl items-stretch">
+                <span className="flex min-w-0 flex-1 items-center truncate rounded-l-[12px] bg-lift px-4 py-2.5 text-[15px]">{profileLink}</span>
+                <button onClick={handleCopyLink} className="btn h-auto rounded-l-none rounded-r-[12px] bg-ink text-ground hover:opacity-90">
+                  <Icon name="copy" />
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="wrap pt-4" aria-busy="true" aria-label="Loading your profile">
+      <div className="skeleton aspect-[5/2] rounded-[24px] sm:aspect-[4/1]" />
+      <div className="-mt-12 flex items-end gap-5 px-1 sm:-mt-16 sm:px-6">
+        <div className="skeleton h-28 w-28 rounded-full ring-[6px] ring-ground sm:h-36 sm:w-36" />
+        <div className="pb-2">
+          <div className="skeleton h-8 w-56 rounded-lg" />
+          <div className="skeleton mt-3 h-4 w-40 rounded-md" />
+        </div>
+      </div>
+      <div className="skeleton mt-12 h-[104px] rounded-[20px]" />
+      <div className="skeleton mt-3 h-[320px] rounded-[20px]" />
     </div>
   );
 }

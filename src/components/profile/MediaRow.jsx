@@ -1,65 +1,67 @@
 import { Link } from 'react-router-dom';
-import { getImageUrl } from '../../lib/tmdb';
+import { getImageUrl, POSTER_FALLBACK } from '../../lib/tmdb';
+import Segmented from '../ui/Segmented';
+import Icon from '../ui/Icon';
 
 const ROW_LIMIT = 200;
 
 // ---------- Horizontal poster row ----------
-export default function MediaRow({ title, items, emptyText, tabs, showCount = true }) {
+export default function MediaRow({ title, items, emptyText, tabs, showCount = true, action }) {
   return (
-    <section className="mt-12">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-2xl font-black text-slate-900 dark:text-white">
+    <section className="mt-14">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold">
           {title}
           {showCount && (
-            <span className="text-base font-bold text-slate-400 dark:text-slate-500">
-              {' '}({items.length}{items.length >= ROW_LIMIT ? '+' : ''})
+            <span className="num ml-2 font-normal text-muted">
+              {items.length}{items.length >= ROW_LIMIT ? '+' : ''}
             </span>
           )}
         </h2>
 
         {tabs && (
-          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg transition-colors">
-            {tabs.options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => tabs.onChange(opt.value)}
-                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
-                  tabs.value === opt.value
-                    ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            size="sm"
+            label={`${title}: which list`}
+            options={tabs.options}
+            value={tabs.value}
+            onChange={tabs.onChange}
+          />
         )}
+        {action}
       </div>
 
       {items.length === 0 ? (
-        <div className="flex justify-center items-center h-32 bg-slate-100 dark:bg-slate-800/40 rounded-xl">
-          <p className="font-medium text-slate-500 dark:text-slate-400">{emptyText}</p>
+        <div className="flex min-h-[120px] items-center rounded-[20px] bg-surface px-6">
+          <p className="text-[15px] text-muted">{emptyText}</p>
         </div>
       ) : (
-        <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-hide">
-          {items.map((item) => (
+        <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 scrollbar-hide">
+          {items.map((item, i) => (
             <Link
               key={item.key}
               to={`/${item.type}/${item.id}`}
-              className="group w-[140px] min-w-[140px] flex-shrink-0 snap-start"
+              className="group arrive w-[148px] min-w-[148px] flex-shrink-0 snap-start"
+              style={{ '--i': Math.min(i, 8) }}
             >
-              <div className="aspect-[2/3] overflow-hidden rounded-xl bg-slate-200 dark:bg-slate-800">
+              <div className="poster">
                 <img
                   src={getImageUrl(item.poster_path, 'w342')}
-                  alt={item.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  onError={(e) => { e.target.src = '/movie-poster.jpg'; }}
+                  alt=""
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; }}
                 />
               </div>
-              <p className="mt-2 text-sm font-bold text-slate-900 dark:text-white truncate" title={item.title}>{item.title}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {item.release_year || 'N/A'}
-                {Number(item.vote_average) > 0 && ` • ★ ${Number(item.vote_average).toFixed(1)}`}
+              <p className="mt-2.5 truncate text-[15px] font-semibold" title={item.title}>{item.title}</p>
+              <p className="flex items-center gap-1.5 text-[13px] text-muted">
+                {item.release_year || 'Year unknown'}
+                {Number(item.vote_average) > 0 && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <Icon name="star" filled className="h-3 w-3 text-data" />
+                    <span className="text-ink">{Number(item.vote_average).toFixed(1)}</span>
+                  </>
+                )}
               </p>
             </Link>
           ))}

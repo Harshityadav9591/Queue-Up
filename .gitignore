@@ -1,4 +1,8 @@
 node_modules/
-.env
 dist/
-.env.local
+.vite/
+.env
+.env.*
+!.env.example
+!.env.sample
+.taste-skill

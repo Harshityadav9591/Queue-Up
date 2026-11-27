@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatDuration } from '../../lib/watchTime';
+import Segmented from '../ui/Segmented';
 
 const ZERO_ENTRY = { movie: { minutes: 0, items: 0 }, tv: { minutes: 0, items: 0 } };
 
@@ -16,6 +17,19 @@ function buildStatsLookup(rows) {
 }
 
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+// Round hour steps so the top tick sits just above the busiest month (3 to 5 ticks)
+function hourScale(maxMinutes) {
+  const maxHours = maxMinutes / 60;
+  const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+  const step = steps.find((s) => Math.ceil(maxHours / s) <= 4) || 1000;
+  const top = Math.max(step, Math.ceil(maxHours / step) * step);
+  const ticks = [];
+  for (let h = 0; h <= top; h += step) ticks.push(h);
+  return { topMinutes: top * 60, ticks };
+}
+
+const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
 // ---------- Watch time card ----------
 export default function WatchTimeCard({ rows, calculating }) {
@@ -43,92 +57,99 @@ export default function WatchTimeCard({ rows, calculating }) {
       tv: e.tv.minutes,
     };
   });
-  const maxMonth = Math.max(1, ...months.map((m) => m.movie + m.tv));
+  const { topMinutes, ticks } = hourScale(Math.max(60, ...months.map((m) => m.movie + m.tv)));
 
   const periods = [
     { value: 'all', label: 'All time' },
     { value: 'year', label: 'This year' },
     { value: 'month', label: 'This month' },
   ];
+  const periodWords = { all: 'in total', year: `in ${now.getFullYear()}`, month: `in ${now.toLocaleString(undefined, { month: 'long' })}` };
+  const total = entry.movie.minutes + entry.tv.minutes;
 
   return (
-    <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-[#0b101e] dark:to-slate-900 border border-slate-700 dark:border-white/10 rounded-xl p-6 md:p-8 shadow-xl">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <section className="rounded-[20px] bg-surface p-5 sm:p-7" aria-labelledby="watch-time-heading">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 id="watch-time-heading" className="text-xl font-bold">Watch time</h2>
+        <Segmented size="sm" label="Watch time period" options={periods} value={period} onChange={setPeriod} />
+      </div>
+
+      <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:items-end">
+        {/* The answer first: how long, then what it is made of */}
         <div>
-          <h3 className="text-white font-bold text-lg mb-1">Total Watch Time</h3>
-          <p className="text-slate-400 text-sm">Built from the movies and episodes you have marked as watched, plus anything you watched again.</p>
-        </div>
-        <div className="flex bg-black/30 p-1 rounded-lg border border-white/10 w-fit">
-          {periods.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
-                period === p.value ? 'bg-[#00f0ff] text-[#0b101e]' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
+          <p className="num text-[40px] font-bold leading-none tracking-[-0.03em]">{formatDuration(total)}</p>
+          <p className="mt-2 text-[15px] text-muted">watched {periodWords[period]}</p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Movies</p>
-          <p className="text-2xl font-black text-[#00f0ff]">{formatDuration(entry.movie.minutes)}</p>
-          <p className="text-slate-500 text-xs mt-1">{entry.movie.items} watched</p>
-        </div>
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">TV Shows</p>
-          <p className="text-2xl font-black text-purple-400">{formatDuration(entry.tv.minutes)}</p>
-          <p className="text-slate-500 text-xs mt-1">{entry.tv.items} episodes</p>
-        </div>
-        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Total</p>
-          <p className="text-2xl font-black text-white">
-            <span className="mr-1">⏱</span>{formatDuration(entry.movie.minutes + entry.tv.minutes)}
-          </p>
-          <p className="text-slate-500 text-xs mt-1">1 month = 30 days</p>
-        </div>
-      </div>
-
-      {period === 'all' && undatedMinutes > 0 && (
-        <p className="text-slate-500 text-xs italic mt-2">
-          Includes {formatDuration(undatedMinutes)} watched before dates were tracked (it can't be placed in a month or year).
-        </p>
-      )}
-      {calculating && (
-        <p className="text-amber-400 text-xs font-medium mt-2">
-          Calculating runtimes for your watch history… these numbers will update when it finishes.
-        </p>
-      )}
-
-      {/* Last 12 months */}
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-slate-300 text-sm font-bold">Last 12 months</p>
-          <div className="flex items-center gap-4 text-xs text-slate-400">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-[#00f0ff]"></span>Movies</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-purple-400"></span>Shows</span>
-          </div>
-        </div>
-        <div className="flex items-end gap-1.5 sm:gap-2">
-          {months.map((m) => (
-            <div
-              key={m.key}
-              className="flex-1 flex flex-col items-center gap-1.5"
-              title={`${m.title}: ${formatDuration(m.movie)} movies, ${formatDuration(m.tv)} shows`}
-            >
-              <div className="w-full h-28 flex flex-col justify-end rounded-md bg-white/5 overflow-hidden">
-                <div className="w-full bg-purple-400" style={{ height: `${(m.tv / maxMonth) * 100}%`, minHeight: m.tv > 0 ? 2 : 0 }}></div>
-                <div className="w-full bg-[#00f0ff]" style={{ height: `${(m.movie / maxMonth) * 100}%`, minHeight: m.movie > 0 ? 2 : 0 }}></div>
-              </div>
-              <span className="text-[10px] sm:text-xs text-slate-400">{m.label}</span>
+          <dl className="mt-6 grid grid-cols-2 gap-4">
+            <div>
+              <dt className="flex items-center gap-2 text-[13px] text-muted">
+                <span className="h-2.5 w-2.5 rounded-[3px] bg-data" aria-hidden="true" />Movies
+              </dt>
+              <dd className="num mt-1 text-xl font-semibold">{formatDuration(entry.movie.minutes)}</dd>
+              <dd className="text-[13px] text-muted">{plural(entry.movie.items, 'watch', 'watches')}</dd>
             </div>
-          ))}
+            <div>
+              <dt className="flex items-center gap-2 text-[13px] text-muted">
+                <span className="h-2.5 w-2.5 rounded-[3px] bg-data opacity-45" aria-hidden="true" />Shows
+              </dt>
+              <dd className="num mt-1 text-xl font-semibold">{formatDuration(entry.tv.minutes)}</dd>
+              <dd className="text-[13px] text-muted">{plural(entry.tv.items, 'episode', 'episodes')}</dd>
+            </div>
+          </dl>
+
+          {period === 'all' && undatedMinutes > 0 && (
+            <p className="mt-4 text-[13px] text-muted">
+              Includes {formatDuration(undatedMinutes)} watched before dates were tracked, so it sits outside the months.
+            </p>
+          )}
+          {calculating && (
+            <p className="mt-4 text-[13px] font-semibold">
+              Looking up runtimes for older watches. These numbers update when it finishes.
+            </p>
+          )}
+          <p className="mt-4 text-[13px] text-muted">A month counts as 30 days.</p>
         </div>
+
+        {/* Last 12 months, movies and shows stacked, on a scale of round hours */}
+        <figure className="min-w-0">
+          <figcaption className="mb-3 text-[13px] text-muted">Last 12 months, in hours</figcaption>
+          <div className="relative h-44 pl-9">
+            {ticks.map((h) => (
+              <div
+                key={h}
+                className="absolute left-9 right-0 flex items-center"
+                style={{ bottom: `${(h * 60 / topMinutes) * 100}%` }}
+                aria-hidden="true"
+              >
+                <span className="num absolute -left-9 w-7 -translate-y-px text-right text-xs text-muted">{h}</span>
+                <span className={`h-px w-full ${h === 0 ? 'bg-muted/50' : 'bg-line'}`} />
+              </div>
+            ))}
+            <div className="relative flex h-full items-end gap-1.5 sm:gap-2.5">
+              {months.map((m, i) => (
+                <div
+                  key={m.key}
+                  className="group/bar flex h-full flex-1 flex-col justify-end"
+                  title={`${m.title}: ${formatDuration(m.movie)} of movies, ${formatDuration(m.tv)} of shows`}
+                >
+                  <div
+                    className="flex flex-col justify-end gap-[2px] transition-opacity duration-200 group-hover/bar:opacity-80"
+                    style={{ height: `${((m.movie + m.tv) / topMinutes) * 100}%`, transformOrigin: 'bottom', animation: `grow-y .9s var(--ease-out) ${i * 40}ms both` }}
+                  >
+                    {m.tv > 0 && <div className="rounded-t-[3px] bg-data opacity-45" style={{ flexGrow: m.tv }} />}
+                    {m.movie > 0 && <div className={`bg-data ${m.tv > 0 ? '' : 'rounded-t-[3px]'}`} style={{ flexGrow: m.movie }} />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 flex gap-1.5 pl-9 sm:gap-2.5" aria-hidden="true">
+            {months.map((m, i) => (
+              <span key={m.key} className={`flex-1 text-center text-xs text-muted ${(11 - i) % 2 === 1 ? 'max-sm:invisible' : ''}`}>{m.label}</span>
+            ))}
+          </div>
+        </figure>
       </div>
-    </div>
+    </section>
   );
 }

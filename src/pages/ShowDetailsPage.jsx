@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getShowDetails, getSeasonDetails, getImageUrl } from '../lib/tmdb';
+import { getShowDetails, getSeasonDetails, getImageUrl, POSTER_FALLBACK } from '../lib/tmdb';
+import { formatDuration } from '../lib/watchTime';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import DetailsExtras from '../components/details/DetailsExtras';
+import { TitleHeader, OverviewAndFacts, CastRow, TrailerDialog, DetailsSkeleton, NotFound, formatLongDate, languageName } from '../components/details/TitleParts';
+import Icon from '../components/ui/Icon';
 
 // Postgres unique-violation: the row is already there, which is fine for our purposes
 const isOk = (error) => !error || error.code === '23505';
@@ -615,268 +618,273 @@ export default function ShowDetailsPage() {
 
   // --- RENDERING ---
 
-  if (loading) return <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] flex justify-center items-center"><p className="text-2xl font-bold text-slate-900 dark:text-white">Loading...</p></div>;
-  if (!show) return <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] flex flex-col justify-center items-center gap-4"><p className="text-2xl font-bold text-slate-900 dark:text-white">Show not found.</p></div>;
+  if (loading) return <DetailsSkeleton />;
+  if (!show) return <NotFound kind="show" />;
 
   const trailer = show.videos?.results?.find(vid => vid.type === 'Trailer' && vid.site === 'YouTube');
-  const backdropUrl = getImageUrl(show.backdrop_path, 'original');
-  const posterUrl = getImageUrl(show.poster_path, 'w500');
-  const releaseYear = show.first_air_date ? show.first_air_date.substring(0, 4) : 'Unknown';
-  const runtime = show.episode_run_time && show.episode_run_time.length > 0 ? `${show.episode_run_time[0]}m per ep` : 'N/A';
+  const releaseYear = show.first_air_date ? show.first_air_date.substring(0, 4) : null;
+  const episodeLength = show.episode_run_time?.[0] ?? null;
+  const regularSeasons = (show.seasons || []).filter(s => s.season_number > 0);
+  const genres = show.genres?.map(g => g.name).join(', ');
+
+  // Where you are in the show: watched episodes against every episode TMDB lists
+  const totalEpisodes = Number(show.number_of_episodes) || 0;
+  const watchedCount = Math.min(watchedEpisodes.size, totalEpisodes || watchedEpisodes.size);
+  const left = Math.max(0, totalEpisodes - watchedCount);
+  const showProgress = totalEpisodes > 0 && (watchedCount > 0 || isInWatchlist || isShowCompleted);
+
+  const actions = (
+    <>
+      <button onClick={handleToggleWatchlist} disabled={isToggling} aria-pressed={isInWatchlist} className={`btn ${isInWatchlist ? 'btn-on' : 'btn-primary'}`}>
+        <Icon name={isInWatchlist ? 'check' : 'plus'} strokeWidth={2.25} />
+        {isToggling ? 'Updating…' : isInWatchlist ? 'In your queue' : 'Add to queue'}
+      </button>
+
+      <button onClick={handleToggleShowCompleted} disabled={isTogglingShowCompleted} aria-pressed={isShowCompleted} className={`btn ${isShowCompleted ? 'btn-on' : 'btn-quiet'}`}>
+        <Icon name={isShowCompleted ? 'check' : 'tv'} strokeWidth={isShowCompleted ? 2.25 : 1.75} />
+        {isTogglingShowCompleted ? 'Updating…' : isShowCompleted ? 'Completed' : 'Mark show completed'}
+      </button>
+
+      {/* Watched again: appears once this is in your Completed Vault */}
+      {isShowCompleted && (
+        <div className="inline-flex items-center rounded-full bg-surface" style={{ animation: 'pop-in .3s var(--ease-out) both' }}>
+          <button onClick={() => handleChangeRewatch(1)} disabled={isChangingRewatch} className="btn bg-transparent hover:bg-raised">
+            <Icon name="rewatch" />
+            {rewatchCount === 0 ? 'Watched again' : rewatchCount === 1 ? 'Watched twice' : `Watched ${rewatchCount + 1} times`}
+          </button>
+          {rewatchCount > 0 && (
+            <button
+              onClick={() => handleChangeRewatch(-1)}
+              disabled={isChangingRewatch}
+              aria-label="Remove one watch"
+              title="Remove one watch"
+              className="icon-btn mr-0.5 h-9 w-9 hover:bg-raised"
+            >
+              <Icon name="minus" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <button onClick={handleToggleFavorite} disabled={isTogglingFavorite} aria-pressed={isFavorite} className={`btn ${isFavorite ? 'btn-on' : 'btn-quiet'}`}>
+        <Icon name="heart" filled={isFavorite} className={`transition-transform duration-300 ${isFavorite ? 'scale-110 text-data' : ''}`} />
+        {isTogglingFavorite ? 'Updating…' : isFavorite ? 'Favorite' : 'Add to favorites'}
+      </button>
+
+      {trailer && (
+        <button onClick={() => setIsTrailerOpen(true)} className="btn btn-ghost">
+          <Icon name="play" filled />
+          Trailer
+        </button>
+      )}
+    </>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] pb-16 transition-colors duration-500 pt-20">
-      
-      {/* Hero Banner */}
-      <div className="h-[60vh] md:h-[70vh] w-full bg-cover bg-center relative" style={{ backgroundImage: `url(${backdropUrl})` }}>
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-50 dark:from-[#0b101e] via-slate-50/80 dark:via-[#0b101e]/80 to-transparent transition-colors duration-500"></div>
-        <div className="container mx-auto px-6 h-full flex items-end pb-12 relative z-10">
-          <div className="flex flex-col md:flex-row gap-8 items-end md:items-start w-full">
-            <img src={posterUrl} alt={show.name} className="w-48 md:w-64 rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 hidden md:block" />
-            <div className="text-slate-900 dark:text-white max-w-3xl transition-colors duration-500">
-              <h1 className="text-4xl md:text-6xl font-extrabold mb-4">{show.name} <span className="text-slate-500 dark:text-slate-400 font-normal">({releaseYear})</span></h1>
-              <div className="flex flex-wrap gap-4 text-sm md:text-base font-medium text-slate-600 dark:text-slate-300 mb-6 transition-colors">
-                <span>{show.number_of_seasons} Seasons</span><span>•</span><span>{show.number_of_episodes} Episodes</span><span>•</span><span>{runtime}</span>
-              </div>
-              <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed mb-8 italic">{show.tagline}</p>
-              <h3 className="text-xl font-bold mb-2">Overview</h3>
-              <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-8">{show.overview}</p>
-              
-              {/* Actions Box */}
-              <div className="flex flex-wrap gap-4 mt-8">
-                
-                {/* Watchlist Toggle */}
-                <button onClick={handleToggleWatchlist} disabled={isToggling} className={`px-8 py-3 rounded-lg font-bold text-lg shadow-lg transition-all ${isInWatchlist ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:bg-blue-700 hover:-translate-y-1'}`}>
-                  {isToggling ? 'Updating...' : isInWatchlist ? '- Remove from Watchlist' : '+ Add to Watchlist'}
-                </button>
-                
-                {/* Show Completed Toggle */}
-                <button onClick={handleToggleShowCompleted} disabled={isTogglingShowCompleted} className={`px-8 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 ${isShowCompleted ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 hover:bg-emerald-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-2 border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}>
-                  {isTogglingShowCompleted ? 'Updating...' : isShowCompleted ? '✓ Show Completed' : 'Mark Show as Completed'}
-                </button>
-
-                {/* Watched again: appears once this is in your Completed Vault */}
-                {isShowCompleted && (
-                  <div className="flex items-stretch gap-2">
-                    <button
-                      onClick={() => handleChangeRewatch(1)}
-                      disabled={isChangingRewatch}
-                      className="px-6 py-3 rounded-lg font-bold text-lg transition-all flex items-center gap-2 border-2 border-transparent bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-60"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                      </svg>
-                      {rewatchCount === 0 ? 'Watched again' : rewatchCount === 1 ? 'Watched twice' : `Watched ${rewatchCount + 1} times`}
-                    </button>
-                    {rewatchCount > 0 && (
-                      <button
-                        onClick={() => handleChangeRewatch(-1)}
-                        disabled={isChangingRewatch}
-                        aria-label="Remove one watch"
-                        title="Remove one watch"
-                        className="w-12 rounded-lg font-bold text-xl transition-all bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-red-500 hover:text-white disabled:opacity-60"
-                      >
-                        −
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Favorite Button */}
-                <button
-                  onClick={handleToggleFavorite}
-                  disabled={isTogglingFavorite}
-                  aria-pressed={isFavorite}
-                  className={`px-6 py-3 rounded-lg font-bold text-lg shadow-sm transition-all flex items-center gap-2 border-2 ${isFavorite ? 'bg-rose-500/10 text-rose-500 border-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
-                >
-                  <span>{isFavorite ? '♥' : '♡'}</span>
-                  {isTogglingFavorite ? 'Updating...' : isFavorite ? 'Favorited' : 'Favorite'}
-                </button>
-
-                {/* Trailer Button */}
-                {trailer && (
-                  <button onClick={() => setIsTrailerOpen(true)} className="px-8 py-3 rounded-lg font-bold text-lg shadow-sm border-2 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors flex items-center gap-2 bg-white/50 dark:bg-transparent backdrop-blur-md">
-                    <span className="text-blue-600 dark:text-[#00f0ff]">▶</span> Watch Trailer
-                  </button>
-                )}
-              </div>
+    <div>
+      <TitleHeader
+        item={show}
+        title={show.name}
+        meta={[
+          releaseYear,
+          `${show.number_of_seasons} ${show.number_of_seasons === 1 ? 'season' : 'seasons'}`,
+          episodeLength ? `${episodeLength}m episodes` : null,
+          genres,
+        ]}
+        actions={actions}
+      >
+        {showProgress && (
+          <div className="mt-7 max-w-md" aria-label="Your progress">
+            <div className="flex items-baseline justify-between gap-4 text-[15px]">
+              <p><span className="font-semibold">{watchedCount}</span> <span className="text-muted">of {totalEpisodes} episodes watched</span></p>
+              <p className="text-muted">
+                {left === 0 ? 'All caught up' : episodeLength ? `About ${formatDuration(left * episodeLength)} left` : `${left} to go`}
+              </p>
+            </div>
+            <div className="meter mt-2.5" role="img" aria-label={`${watchedCount} of ${totalEpisodes} episodes watched`}>
+              <span style={{ width: `${(watchedCount / totalEpisodes) * 100}%` }} />
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </TitleHeader>
 
-      {/* Accordion Seasons Section */}
-      <div className="container mx-auto px-6 py-12 max-w-5xl">
-        <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Seasons & Episodes</h2>
-        
-        {show.seasons && show.seasons.length > 0 ? (
-          <div className="flex flex-col gap-4">
-            {show.seasons.filter(s => s.season_number > 0).map(season => {
+      <OverviewAndFacts
+        item={show}
+        facts={[
+          ['First aired', formatLongDate(show.first_air_date)],
+          ['Seasons', String(show.number_of_seasons ?? '')],
+          ['Episodes', totalEpisodes ? String(totalEpisodes) : null],
+          ['Episode length', episodeLength ? `${episodeLength}m` : null],
+          ['Language', languageName(show.original_language)],
+          ['Status', show.status],
+        ]}
+      >
+        <CastRow cast={show.credits?.cast} inline />
+      </OverviewAndFacts>
+
+      {/* ---------- Seasons and episodes ---------- */}
+      <section className="wrap mt-16" aria-labelledby="seasons-heading">
+        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="seasons-heading" className="text-xl font-bold">Seasons and episodes</h2>
+          <p className="text-[13px] text-muted">
+            {regularSeasons.length} {regularSeasons.length === 1 ? 'season' : 'seasons'} · tick episodes as you watch them
+          </p>
+        </div>
+
+        {regularSeasons.length > 0 ? (
+          <div className="overflow-hidden rounded-[20px] bg-surface">
+            {regularSeasons.map((season, si) => {
               const isSeasonWatched = watchedSeasons.has(season.season_number);
-              
+              const isOpen = expandedSeason === season.season_number;
+              const episodes = seasonData[season.season_number];
+              const seasonWatchedCount = episodes ? episodes.filter(ep => watchedEpisodes.has(ep.id.toString())).length : null;
+
               return (
-              <div key={season.id} className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm transition-colors">
-                
-                <div onClick={() => handleSeasonClick(season.season_number)} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors gap-4">
-                  <div className="flex items-center gap-6">
-                    <img src={getImageUrl(season.poster_path, 'w154')} alt={season.name} className="w-16 h-24 object-cover rounded-md bg-slate-200 dark:bg-slate-800" onError={(e) => e.target.src = '/movie-poster.jpg'} />
-                    <div>
-                      <h4 className="font-extrabold text-xl text-slate-900 dark:text-white">{season.name}</h4>
-                      <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 text-sm mt-1 font-medium">
-                        <span>{season.episode_count} Episodes</span><span>•</span><span>{season.air_date ? season.air_date.substring(0, 4) : 'Upcoming'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4 w-full sm:w-auto justify-end sm:pr-4">
+                <div key={season.id} className={si > 0 ? 'border-t border-line' : ''}>
+                  <div className="flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5">
                     <button
+                      type="button"
+                      onClick={() => handleSeasonClick(season.season_number)}
+                      aria-expanded={isOpen}
+                      className="group flex min-w-0 flex-1 items-center gap-4 rounded-[12px] text-left"
+                    >
+                      <img
+                        src={getImageUrl(season.poster_path, 'w154')}
+                        alt=""
+                        className="h-[66px] w-11 flex-none rounded-[4px] bg-raised object-cover"
+                        onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; }}
+                      />
+                      <div className="min-w-0">
+                        <h3 className="text-[17px] font-semibold">{season.name}</h3>
+                        <p className="text-[13px] text-muted">
+                          {seasonWatchedCount !== null ? `${seasonWatchedCount} of ${season.episode_count} watched` : `${season.episode_count} episodes`}
+                          {' · '}{season.air_date ? season.air_date.substring(0, 4) : 'Upcoming'}
+                        </p>
+                      </div>
+                      <Icon name="chevronDown" className={`ml-auto h-5 w-5 flex-none text-muted transition-transform duration-500 ease-out-soft group-hover:text-ink ${isOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={(e) => handleMarkSeasonWatched(e, season.season_number)}
                       disabled={isTogglingSeason}
-                      className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${
-                        isSeasonWatched
-                          ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500 hover:bg-emerald-500 hover:text-white'
-                      }`}
+                      aria-pressed={isSeasonWatched}
+                      className={`btn btn-sm flex-none ${isSeasonWatched ? 'btn-on' : 'btn-ghost hover:bg-raised'}`}
                     >
-                      {isSeasonWatched ? '✓ Watched' : 'Mark Season Watched'}
+                      <Icon name="check" strokeWidth={2.25} className={isSeasonWatched ? '' : 'opacity-60'} />
+                      <span className="hidden sm:inline">{isSeasonWatched ? 'Season watched' : 'Mark season watched'}</span>
+                      <span className="sm:hidden">{isSeasonWatched ? 'Watched' : 'Season'}</span>
                     </button>
-                    <div className="hidden sm:block text-slate-400 text-2xl font-bold">{expandedSeason === season.season_number ? '−' : '+'}</div>
                   </div>
+
+                  {isOpen && (
+                    <div className="px-2 pb-3 sm:px-3">
+                      {loadingSeason && !episodes ? (
+                        <div className="space-y-2 p-2" aria-busy="true">
+                          {[0, 1, 2].map(i => <div key={i} className="skeleton h-[76px] rounded-[14px] bg-raised" />)}
+                        </div>
+                      ) : episodes && episodes.length > 0 ? (
+                        <ol className="flex flex-col gap-1">
+                          {episodes.map((episode, i) => {
+                            const isEpWatched = watchedEpisodes.has(episode.id.toString());
+                            return (
+                              <li
+                                key={episode.id}
+                                className="arrive group flex cursor-pointer items-start gap-3 rounded-[14px] p-2 transition-colors duration-200 hover:bg-raised sm:gap-4 sm:p-3"
+                                style={{ '--i': Math.min(i, 10) }}
+                                onClick={() => handleEpisodeClick(episode)}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleEpisodeFromList(episode, isEpWatched); }}
+                                  disabled={isTogglingWatched}
+                                  aria-pressed={isEpWatched}
+                                  aria-label={isEpWatched ? `Mark episode ${episode.episode_number} as not watched` : `Mark episode ${episode.episode_number} as watched`}
+                                  title={isEpWatched ? 'Watched (click to undo)' : 'Mark as watched'}
+                                  className="tick mt-0.5"
+                                >
+                                  <Icon name="check" strokeWidth={2.5} />
+                                </button>
+
+                                <div className="relative hidden aspect-video w-36 flex-none overflow-hidden rounded-[8px] bg-raised sm:block">
+                                  {episode.still_path ? (
+                                    <img src={getImageUrl(episode.still_path, 'w300')} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <span className="grid h-full place-items-center text-[13px] text-muted">E{episode.episode_number}</span>
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-[15px] font-semibold">
+                                    <span className="num mr-2 text-muted">{episode.episode_number}</span>
+                                    {episode.name}
+                                  </h4>
+                                  {episode.overview && <p className="mt-1 line-clamp-2 text-sm text-muted">{episode.overview}</p>}
+                                  <p className="mt-1 text-[13px] text-muted">
+                                    {episode.air_date ? `Aired ${formatLongDate(episode.air_date)}` : 'Air date not announced'}
+                                    {episode.runtime ? ` · ${episode.runtime}m` : ''}
+                                  </p>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : (
+                        <p className="px-3 py-4 text-[15px] text-muted">TMDB has no episodes listed for this season yet.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
-
-                {expandedSeason === season.season_number && (
-                  <div className="border-t border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/80 transition-colors">
-                    {loadingSeason ? (
-                      <div className="p-8 text-center text-slate-500 font-medium">Loading episodes...</div>
-                    ) : seasonData[season.season_number] && seasonData[season.season_number].length > 0 ? (
-                      <div className="flex flex-col divide-y divide-slate-200 dark:divide-white/5">
-                        {seasonData[season.season_number].map(episode => {
-                          const isEpWatched = watchedEpisodes.has(episode.id.toString());
-                          
-                          return (
-                          <div 
-                            key={episode.id} 
-                            onClick={() => handleEpisodeClick(episode)}
-                            className="p-6 flex flex-col md:flex-row gap-6 hover:bg-white dark:hover:bg-slate-800/60 cursor-pointer transition-colors relative"
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleEpisodeFromList(episode, isEpWatched); }}
-                              disabled={isTogglingWatched}
-                              aria-label={isEpWatched ? 'Mark episode as not watched' : 'Mark episode as watched'}
-                              title={isEpWatched ? 'Watched (click to undo)' : 'Mark as watched'}
-                              className={`absolute top-4 right-4 md:top-1/2 md:-translate-y-1/2 z-10 w-11 h-11 rounded-full flex items-center justify-center border-2 transition-all disabled:opacity-60 ${
-                                isEpWatched
-                                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm shadow-emerald-500/30'
-                                  : 'border-slate-300 dark:border-slate-600 text-transparent hover:border-emerald-500 hover:text-emerald-500'
-                              }`}
-                            >
-                              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            </button>
-
-                            <div className="w-full md:w-48 flex-shrink-0 aspect-video rounded-lg overflow-hidden bg-slate-200 dark:bg-slate-800 relative shadow-sm">
-                               {episode.still_path ? (
-                                 <img src={getImageUrl(episode.still_path, 'w300')} alt={episode.name} className="w-full h-full object-cover" />
-                               ) : (
-                                 <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">No Image</div>
-                               )}
-                               <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-2 py-0.5 rounded font-bold">
-                                 {episode.runtime ? `${episode.runtime}m` : ''}
-                               </div>
-                            </div>
-                            <div className="flex-grow pr-16">
-                              <h5 className="font-bold text-lg text-slate-900 dark:text-white transition-colors">
-                                <span className="text-blue-600 dark:text-slate-400 mr-2">{episode.episode_number}.</span>
-                                {episode.name}
-                              </h5>
-                              <p className="text-slate-600 dark:text-slate-400 text-sm mt-2 leading-relaxed line-clamp-2 transition-colors">
-                                {episode.overview || "No overview available."}
-                              </p>
-                              <p className="text-slate-400 dark:text-slate-500 text-xs mt-3 font-medium transition-colors">Aired: {episode.air_date || 'TBA'}</p>
-                            </div>
-                          </div>
-                        )})}
-                      </div>
-                    ) : (
-                      <div className="p-8 text-center text-slate-500 font-medium">No episodes found.</div>
-                    )}
-                  </div>
-                )}
-                
-              </div>
-            )})}
+              );
+            })}
           </div>
         ) : (
-          <p className="text-slate-500 italic">Season information not available.</p>
+          <div className="flex min-h-[96px] items-center rounded-[20px] bg-surface px-6">
+            <p className="text-[15px] text-muted">TMDB has no season information for this show yet.</p>
+          </div>
         )}
-      </div>
+      </section>
 
-      {/* EPISODE MODAL */}
-      {selectedEpisode && (
-        <div onClick={() => setSelectedEpisode(null)} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-all">
-          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" className="relative w-full max-w-2xl bg-white dark:bg-[#0b101e] border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            
-
-            <div className="w-full h-48 md:h-64 bg-slate-200 dark:bg-slate-800 relative">
-              {selectedEpisode.still_path && <img src={getImageUrl(selectedEpisode.still_path, 'original')} alt={selectedEpisode.name} className="w-full h-full object-cover" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-[#0b101e] via-transparent to-transparent"></div>
-            </div>
-
-            <div className="p-6 md:p-8 overflow-y-auto relative z-10 -mt-10">
-              <h2 className="text-3xl font-black text-slate-900 dark:text-white drop-shadow-md">
-                <span className="text-blue-600 dark:text-[#00f0ff] mr-2">E{selectedEpisode.episode_number}.</span> 
-                {selectedEpisode.name}
-              </h2>
-              
-              <div className="flex gap-3 mt-2 mb-6 text-sm font-medium text-slate-500 dark:text-slate-400">
-                <span>{selectedEpisode.air_date}</span> • <span>{selectedEpisode.runtime} mins</span>
-              </div>
-              <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-8">{selectedEpisode.overview || "No detailed overview available."}</p>
-
-              <button onClick={toggleEpisodeWatched} disabled={isTogglingWatched} className={`w-full py-4 rounded-xl font-bold text-lg shadow-sm transition-all flex items-center justify-center gap-2 ${isEpisodeWatched ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-500 hover:bg-emerald-500 hover:text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
-                {isTogglingWatched ? 'Updating...' : isEpisodeWatched ? '✓ Watched' : 'Mark as Watched'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* --- CAST SECTION --- */}
-      {show.credits?.cast && show.credits.cast.length > 0 && (
-        <div className="container mx-auto px-6 py-8 max-w-5xl border-t border-slate-200 dark:border-white/10 mt-8">
-          <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Top Cast</h2>
-          
-          <div className="flex overflow-x-auto gap-4 pb-6 snap-x snap-mandatory scrollbar-hide">
-            {show.credits.cast.slice(0, 15).map((actor) => (
-              <div key={actor.id} className="min-w-[140px] w-[140px] flex-shrink-0 snap-start bg-white dark:bg-slate-800/80 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-white/5 transition-colors">
-                {actor.profile_path ? (
-                  <img src={getImageUrl(actor.profile_path, 'w185')} alt={actor.name} className="w-full h-[175px] object-cover" />
-                ) : (
-                  <div className="w-full h-[175px] bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-4xl">👤</div>
-                )}
-                <div className="p-3">
-                  <h4 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{actor.name}</h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{actor.character}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Photos, rating, reviews and similar shows. key resets its open/closed state when you move to another show */}
+      {/* Photos, reviews and similar shows. key resets its open/closed state when you move to another show */}
       <DetailsExtras key={show.id} item={show} mediaType="tv" />
 
-      {/* Main Trailer Modal Overlay */}
-      {isTrailerOpen && trailer && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95 p-4 md:p-12">
-          <div className="relative w-full max-w-5xl aspect-video bg-black rounded-xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-white/10">
-            <button onClick={() => setIsTrailerOpen(false)} className="absolute top-4 right-4 z-10 bg-black/60 hover:bg-red-500 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors font-bold text-xl">✕</button>
-            <iframe src={`https://www.youtube.com/embed/${trailer.key}?autoplay=1`} title={`${show.name} Trailer`} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+      {/* ---------- Episode window ---------- */}
+      {selectedEpisode && (
+        <div className="fixed inset-0 z-[60] grid place-items-end p-0 sm:place-items-center sm:p-4" role="dialog" aria-modal="true" aria-label={selectedEpisode.name}>
+          <div className="dialog-backdrop" onClick={() => setSelectedEpisode(null)} />
+          <div className="dialog-panel relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-t-[24px] bg-float sm:rounded-[24px]">
+            {selectedEpisode.still_path && (
+              <img src={getImageUrl(selectedEpisode.still_path, 'w780')} alt="" className="aspect-video w-full flex-none object-cover" />
+            )}
+            <div className="overflow-y-auto p-6 sm:p-8">
+              <p className="text-[13px] font-semibold text-muted">
+                Season {selectedEpisode.season_number}, episode {selectedEpisode.episode_number}
+              </p>
+              <h2 className="mt-1 text-2xl font-bold">{selectedEpisode.name}</h2>
+              <p className="mt-1 text-[15px] text-muted">
+                {selectedEpisode.air_date ? formatLongDate(selectedEpisode.air_date) : 'Air date not announced'}
+                {selectedEpisode.runtime ? ` · ${selectedEpisode.runtime}m` : ''}
+              </p>
+              <p className="mt-5 leading-relaxed">{selectedEpisode.overview || 'TMDB has no overview for this episode yet.'}</p>
+
+              <div className="mt-7 flex gap-2">
+                <button
+                  onClick={toggleEpisodeWatched}
+                  disabled={isTogglingWatched}
+                  aria-pressed={isEpisodeWatched}
+                  className={`btn btn-lg flex-1 ${isEpisodeWatched ? 'btn-on' : 'btn-primary'}`}
+                >
+                  <Icon name="check" strokeWidth={2.25} />
+                  {isTogglingWatched ? 'Updating…' : isEpisodeWatched ? 'Watched' : 'Mark as watched'}
+                </button>
+                <button onClick={() => setSelectedEpisode(null)} className="btn btn-lg btn-quiet">Close</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+      {isTrailerOpen && trailer && <TrailerDialog trailer={trailer} title={show.name} onClose={() => setIsTrailerOpen(false)} />}
     </div>
   );
 }

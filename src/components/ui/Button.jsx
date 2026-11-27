@@ -1,13 +1,14 @@
-export default function Button({ variant = 'primary', children, className = '', ...props }) {
-  const baseClasses = "px-4 py-2 rounded-md transition duration-300 button-effect font-medium";
-  
+export default function Button({ variant = 'primary', size, children, className = '', ...props }) {
   const variants = {
-    primary: "bg-primary-1 hover:bg-primary-2 text-white",
-    secondary: "text-primary-1 border-2 border-primary-1 hover:border-primary-2 hover:text-primary-2"
+    primary: 'btn-primary',
+    secondary: 'btn-quiet',
+    quiet: 'btn-quiet',
+    ghost: 'btn-ghost',
   };
+  const sizes = { sm: 'btn-sm', lg: 'btn-lg' };
 
   return (
-    <button className={`${baseClasses} ${variants[variant]} ${className}`} {...props}>
+    <button className={`btn ${variants[variant] || variants.primary} ${sizes[size] || ''} ${className}`} {...props}>
       {children}
     </button>
   );

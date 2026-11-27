@@ -1,25 +1,49 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import Icon from './Icon';
 
 export default function MultiSelect({
   label,
   options = [],
   selected = [],
   onChange,
-  placeholder = 'Select options...'
+  placeholder = 'Select options...',
+  fullWidth = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
 
-  // Close dropdown on click outside
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 639px)');
+    const updateViewport = () => setIsMobile(mediaQuery.matches);
+    updateViewport();
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', updateViewport);
+      return () => mediaQuery.removeEventListener('change', updateViewport);
+    }
+    mediaQuery.addListener(updateViewport);
+    return () => mediaQuery.removeListener(updateViewport);
+  }, []);
+
+  // Close on click outside or Escape
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
+      const clickedTrigger = containerRef.current?.contains(event.target);
+      const clickedDropdown = dropdownRef.current?.contains(event.target);
+      if (!clickedTrigger && !clickedDropdown) {
         setIsOpen(false);
       }
     };
+    const handleKey = (e) => { if (e.key === 'Escape') setIsOpen(false); };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
   const handleToggleOption = (value) => {
@@ -35,122 +59,94 @@ export default function MultiSelect({
     onChange(updated);
   };
 
-  const handleClear = (e) => {
-    e.stopPropagation();
-    onChange([]);
-  };
-
   // Filter options by search term
   const filteredOptions = options.filter(opt =>
     String(opt.label).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Determine button trigger text
+  // Trigger text: the one choice by name, or the group name with a count beside it
   const getTriggerText = () => {
     if (!selected || selected.length === 0) return placeholder;
     if (selected.length === 1) {
       const match = options.find(o => String(o.value) === String(selected[0]));
       return match ? match.label : placeholder;
     }
-    return `${label || 'Selected'} (${selected.length})`;
+    return label || 'Selected';
   };
 
   const selectedStrings = (selected || []).map(String);
+  const active = selected.length > 0;
+  const dropdown = isOpen ? (
+    <div
+      ref={dropdownRef}
+      className="float fixed inset-x-3 bottom-3 z-50 flex max-h-[70vh] flex-col overflow-hidden sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-2 sm:max-h-96 sm:w-72"
+    >
+      {options.length > 6 && (
+        <div className="p-2 pb-0">
+          <input
+            type="text"
+            autoFocus
+            placeholder={`Find a ${(label || 'value').replace(/s$/, '').toLowerCase()}`}
+            aria-label={`Filter ${label || 'options'}`}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="field h-10 rounded-[10px] text-[15px]"
+          />
+        </div>
+      )}
+
+      <div className="flex items-center justify-between px-4 pt-3 pb-1 text-[13px] text-muted">
+        <span className="num">{selected.length} selected</span>
+        {active && (
+          <button type="button" onClick={() => onChange([])} className="font-semibold text-ink underline-offset-4 hover:underline">
+            Clear
+          </button>
+        )}
+      </div>
+
+      <div role="listbox" aria-multiselectable="true" aria-label={label} className="flex-grow overflow-y-auto p-1.5 scrollbar-hide">
+        {filteredOptions.length === 0 ? (
+          <p className="px-3 py-4 text-sm text-muted">Nothing matches “{searchTerm}”.</p>
+        ) : (
+          filteredOptions.map((opt) => {
+            const isChecked = selectedStrings.includes(String(opt.value));
+            return (
+              <button
+                type="button"
+                role="option"
+                aria-selected={isChecked}
+                key={opt.value}
+                onClick={() => handleToggleOption(opt.value)}
+                className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-[15px] transition-colors hover:bg-surface"
+              >
+                <span className={`grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] transition-colors ${isChecked ? 'bg-ink text-ground' : 'shadow-[inset_0_0_0_1.5px_var(--muted)]'}`}>
+                  {isChecked && <Icon name="check" strokeWidth={3} className="h-3 w-3" />}
+                </span>
+                <span className={`truncate ${isChecked ? 'font-semibold' : ''}`}>{opt.label}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  ) : null;
 
   return (
-    <div ref={containerRef} className="relative inline-block text-left w-full sm:w-auto min-w-[160px]">
-      {/* Trigger Button */}
+    <div ref={containerRef} className={fullWidth ? 'relative w-full sm:w-auto sm:flex-none' : 'relative flex-none'}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between gap-2 bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700/80 focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] transition-colors"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        data-active={active}
+        className={fullWidth ? 'chip w-full justify-between px-2 sm:w-auto sm:justify-start sm:px-4' : 'chip'}
       >
-        <span className="truncate">{getTriggerText()}</span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected && selected.length > 0 && (
-            <span
-              onClick={handleClear}
-              className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 font-bold p-0.5 rounded transition-colors"
-              title="Clear selection"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </span>
-          )}
-          <svg
-            className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
+        <span className="max-w-[160px] truncate">{getTriggerText()}</span>
+        {selected.length > 1 && <span className="num grid h-5 min-w-5 place-items-center rounded-full bg-ground px-1.5 text-xs text-ink">{selected.length}</span>}
+        <Icon name="chevronDown" className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Popover Dropdown */}
-      {isOpen && (
-        <div className="absolute left-0 mt-2 w-64 bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-white/15 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 transition-all duration-200">
-          {/* Search box if options > 6 */}
-          {options.length > 6 && (
-            <div className="p-2 border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-900/50">
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-md px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff]"
-              />
-            </div>
-          )}
-
-          {/* Quick Header Actions */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 dark:border-white/5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-900/30">
-            <span>{selected.length} selected</span>
-            {selected.length > 0 && (
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="text-blue-600 dark:text-[#00f0ff] hover:underline font-medium"
-              >
-                Clear all
-              </button>
-            )}
-          </div>
-
-          {/* Options List */}
-          <div className="overflow-y-auto p-1.5 space-y-0.5 flex-grow max-h-56">
-            {filteredOptions.length === 0 ? (
-              <div className="p-3 text-center text-xs text-slate-400">No results found</div>
-            ) : (
-              filteredOptions.map((opt) => {
-                const isChecked = selectedStrings.includes(String(opt.value));
-                return (
-                  <label
-                    key={opt.value}
-                    onClick={() => handleToggleOption(opt.value)}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer select-none transition-colors ${
-                      isChecked
-                        ? 'bg-blue-50 dark:bg-[#00f0ff]/10 text-blue-600 dark:text-[#00f0ff] font-semibold'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {}} // handled by label onClick
-                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-blue-600 dark:text-[#00f0ff] focus:ring-0 cursor-pointer"
-                    />
-                    <span className="truncate">{opt.label}</span>
-                  </label>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      {isMobile ? createPortal(dropdown, document.body) : dropdown}
     </div>
   );
 }

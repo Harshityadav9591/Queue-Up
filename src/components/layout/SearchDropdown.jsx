@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { searchContentLive, getImageUrl } from '../../lib/tmdb';
+import { searchContentLive, getImageUrl, POSTER_FALLBACK } from '../../lib/tmdb';
 import { searchPeople, followersLabel } from '../../lib/people';
+import Icon from '../ui/Icon';
+import Avatar from '../ui/Avatar';
 
 const MAX_TITLES = 5;
 const MAX_PEOPLE_MIXED = 3;
 const MAX_PEOPLE_ONLY = 6;
 
 export default function SearchDropdown({
-  placeholder = 'Search movies, shows, people...',
+  placeholder = 'Search movies, shows, @people',
   inputClassName = '',
   onNavigate,
+  autoFocus = false,
 }) {
   const [query, setQuery] = useState('');
   const [titles, setTitles] = useState([]);
@@ -112,12 +115,13 @@ export default function SearchDropdown({
 
   const showPanel = open && term.length >= 2;
   const rowClass = (idx) =>
-    `w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${idx === activeIndex ? 'bg-slate-100 dark:bg-white/10' : ''}`;
-  const sectionLabel = 'px-4 pt-3 pb-1 text-sm font-semibold text-slate-500 dark:text-slate-400';
+    `w-full flex items-center gap-3 rounded-[12px] px-2.5 py-2 text-left transition-colors ${idx === activeIndex ? 'bg-surface' : ''}`;
+  const sectionLabel = 'px-3 pt-3 pb-1.5 text-[13px] font-semibold text-muted';
 
   return (
     <div ref={wrapperRef} className="relative w-full">
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} role="search" className="relative">
+        <Icon name="search" className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted" />
         <input
           type="text"
           role="combobox"
@@ -128,6 +132,7 @@ export default function SearchDropdown({
           aria-activedescendant={activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined}
           placeholder={placeholder}
           value={query}
+          autoFocus={autoFocus}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
@@ -135,16 +140,16 @@ export default function SearchDropdown({
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
           autoComplete="off"
-          className={inputClassName}
+          className={inputClassName || 'h-10 w-full rounded-full bg-surface pl-10 pr-4 text-[15px] text-ink transition-[background-color,box-shadow] duration-200 hover:bg-raised focus:bg-lift focus:shadow-[0_0_0_2px_var(--ink)] focus:outline-none'}
         />
       </form>
 
       {showPanel && (
-        <div className="absolute top-full left-0 right-0 mt-2 z-50 overflow-hidden rounded-xl bg-white dark:bg-slate-900 shadow-xl dark:shadow-none dark:ring-1 dark:ring-white/10">
+        <div className="float absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden p-1.5">
           {loading && options.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">Searching...</p>
+            <p className="px-3 py-3 text-sm text-muted">Searching…</p>
           ) : options.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+            <p className="px-3 py-3 text-sm text-muted">
               {peopleOnly ? `No public profiles match “${term}”` : `No results for “${term}”`}
             </p>
           ) : (
@@ -171,33 +176,25 @@ export default function SearchDropdown({
                             <img
                               src={getImageUrl(opt.item.poster_path, 'w92')}
                               alt=""
-                              className="w-9 h-14 rounded object-cover flex-shrink-0 bg-slate-200 dark:bg-slate-700"
-                              onError={(e) => { e.target.src = '/movie-poster.jpg'; }}
+                              className="h-[54px] w-9 flex-shrink-0 rounded-[4px] bg-surface object-cover"
+                              onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; }}
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">{opt.item.title || opt.item.name}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {(opt.item.release_date || opt.item.first_air_date || '').slice(0, 4) || 'N/A'}
-                                {opt.item.vote_average > 0 && ` • rated ${opt.item.vote_average.toFixed(1)}`}
+                              <p className="truncate text-[15px] font-semibold">{opt.item.title || opt.item.name}</p>
+                              <p className="text-[13px] text-muted">
+                                {(opt.item.release_date || opt.item.first_air_date || '').slice(0, 4) || 'Year unknown'}
+                                {' · '}{opt.item.media_type === 'tv' ? 'Show' : 'Movie'}
+                                {opt.item.vote_average > 0 && ` · ${opt.item.vote_average.toFixed(1)}`}
                               </p>
                             </div>
-                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-[#00f0ff]/15 dark:text-[#00f0ff]">
-                              {opt.item.media_type === 'tv' ? 'TV' : 'Movie'}
-                            </span>
                           </>
                         ) : (
                           <>
-                            {opt.person.avatar_url ? (
-                              <img src={opt.person.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 bg-slate-200 dark:bg-slate-700" />
-                            ) : (
-                              <span className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-900 dark:text-white flex-shrink-0">
-                                {(opt.person.nickname || opt.person.username).charAt(0).toUpperCase()}
-                              </span>
-                            )}
+                            <Avatar url={opt.person.avatar_url} name={opt.person.nickname || opt.person.username} size="h-9 w-9 text-sm" />
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-sm text-slate-900 dark:text-white truncate">{opt.person.nickname || `@${opt.person.username}`}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                {opt.person.nickname ? `@${opt.person.username} • ` : ''}{followersLabel(opt.person.followers_count)}
+                              <p className="truncate text-[15px] font-semibold">{opt.person.nickname || `@${opt.person.username}`}</p>
+                              <p className="truncate text-[13px] text-muted">
+                                {opt.person.nickname ? `@${opt.person.username} · ` : ''}{followersLabel(opt.person.followers_count)}
                               </p>
                             </div>
                           </>
@@ -213,9 +210,10 @@ export default function SearchDropdown({
           <button
             type="button"
             onClick={seeAll}
-            className="w-full px-4 py-2.5 text-sm font-semibold text-blue-600 dark:text-[#00f0ff] hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+            className="mt-1 flex w-full items-center justify-between rounded-[12px] px-3 py-2.5 text-left text-sm font-semibold transition-colors hover:bg-surface"
           >
             {peopleOnly ? `See all people matching “${term}”` : `See all results for “${term}”`}
+            <Icon name="arrowRight" className="h-4 w-4" />
           </button>
         </div>
       )}

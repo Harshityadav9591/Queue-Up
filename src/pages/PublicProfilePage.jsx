@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import MediaRow from '../components/profile/MediaRow';
 import WatchTimeCard from '../components/profile/WatchTimeCard';
 import toast from 'react-hot-toast';
+import Avatar from '../components/ui/Avatar';
+import Icon from '../components/ui/Icon';
 
 const TAB_OPTIONS = [
   { value: 'queue', label: 'In queue' },
@@ -26,10 +28,10 @@ const normalize = (r) => {
 
 function MessageScreen({ title, text }) {
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] flex flex-col justify-center items-center gap-4 px-6 text-center transition-colors duration-500">
-      <p className="text-3xl font-black text-slate-900 dark:text-white">{title}</p>
-      <p className="text-slate-500 dark:text-slate-400 max-w-md">{text}</p>
-      <Link to="/discover" className="mt-2 px-6 py-2.5 rounded-lg font-bold bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:opacity-90 transition-opacity">
+    <div className="wrap flex min-h-[60vh] flex-col items-start justify-center">
+      <h1 className="text-[32px] font-extrabold tracking-[-0.03em]">{title}</h1>
+      <p className="mt-2 max-w-md text-muted">{text}</p>
+      <Link to="/discover" className="btn btn-primary mt-6">
         Back to Discover
       </Link>
     </div>
@@ -127,8 +129,16 @@ export default function PublicProfilePage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] flex justify-center items-center">
-        <p className="text-2xl font-bold text-slate-900 dark:text-white">Loading...</p>
+      <div className="wrap pt-4" aria-busy="true" aria-label="Loading profile">
+        <div className="skeleton aspect-[5/2] rounded-[24px] sm:aspect-[4/1]" />
+        <div className="-mt-12 flex items-end gap-5 px-1 sm:-mt-16 sm:px-6">
+          <div className="skeleton h-28 w-28 rounded-full ring-[6px] ring-ground sm:h-36 sm:w-36" />
+          <div className="pb-2">
+            <div className="skeleton h-8 w-56 rounded-lg" />
+            <div className="skeleton mt-3 h-4 w-32 rounded-md" />
+          </div>
+        </div>
+        <div className="skeleton mt-12 h-[320px] rounded-[20px]" />
       </div>
     );
   }
@@ -147,106 +157,94 @@ export default function PublicProfilePage() {
   const displayName = profile.nickname || `@${profile.username}`;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] py-24 px-4 sm:px-6 transition-colors duration-500">
-      <div className="container mx-auto max-w-5xl">
+    <div className="wrap pt-2 sm:pt-4">
 
-        <div className="bg-white dark:bg-slate-900/60 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500">
+      {/* Banner */}
+      <div className="aspect-[5/2] overflow-hidden rounded-[24px] bg-surface sm:aspect-[4/1]">
+        {profile.banner_url && <img src={profile.banner_url} alt="" className="h-full w-full object-cover" />}
+      </div>
 
-          {/* Banner */}
-          <div className="h-48 md:h-64 w-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-            {profile.banner_url ? (
-              <img src={profile.banner_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-r from-slate-800 to-slate-900"></div>
-            )}
+      {/* Avatar, name, follow */}
+      <div className="relative -mt-12 flex flex-col gap-5 px-1 sm:-mt-16 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+        <div className="flex min-w-0 items-end gap-4 sm:gap-6">
+          <div className="h-28 w-28 flex-none overflow-hidden rounded-full ring-[6px] ring-ground sm:h-36 sm:w-36">
+            <Avatar url={profile.avatar_url} name={profile.nickname || profile.username} size="h-full w-full text-5xl" />
           </div>
-
-          <div className="px-6 md:px-12 pb-12 relative">
-
-            {/* Avatar & actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end -mt-16 md:-mt-20 mb-8 gap-6 relative z-10">
-              <div className="w-32 h-32 md:w-40 md:h-40 bg-slate-900 dark:bg-[#0b101e] rounded-full border-4 border-white dark:border-[#0b101e] flex items-center justify-center shadow-xl overflow-hidden flex-shrink-0">
-                {profile.avatar_url ? (
-                  <img src={profile.avatar_url} alt={displayName} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-5xl">👤</span>
-                )}
-              </div>
-
-              {profile.is_self ? (
-                <Link to="/profile" className="px-6 py-2.5 rounded-lg font-bold text-slate-900 dark:text-white border-2 border-slate-300 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10 transition-all w-full md:w-auto text-center">
-                  Edit profile
-                </Link>
-              ) : (
-                <button
-                  onClick={handleToggleFollow}
-                  disabled={togglingFollow}
-                  className={`px-8 py-2.5 rounded-lg font-bold transition-all shadow-sm w-full md:w-auto disabled:opacity-60 ${
-                    isFollowing
-                      ? 'bg-transparent text-slate-900 dark:text-white border-2 border-slate-300 dark:border-white/20 hover:border-red-500 hover:text-red-500'
-                      : 'bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:opacity-90'
-                  }`}
-                >
-                  {togglingFollow ? 'Updating...' : isFollowing ? 'Following' : 'Follow'}
-                </button>
-              )}
-            </div>
-
-            {/* Name, bio, counts */}
-            <div className="border-b border-slate-200 dark:border-white/10 pb-10 transition-colors">
-              <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white">{displayName}</h1>
-              <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">@{profile.username}</p>
-
-              {profile.bio && (
-                <div className="flex items-start gap-2 mt-5 text-slate-700 dark:text-slate-300">
-                  <span className="text-blue-600 dark:text-[#00f0ff] font-serif text-2xl leading-none">❝</span>
-                  <p className="text-md italic font-medium pt-1">{profile.bio}</p>
-                </div>
-              )}
-
-              <p className="mt-5 text-sm font-bold text-slate-700 dark:text-slate-300">
-                {counts.followers} <span className="font-medium text-slate-500 dark:text-slate-400">followers</span>
-                <span className="mx-2 text-slate-400">•</span>
-                {counts.following} <span className="font-medium text-slate-500 dark:text-slate-400">following</span>
-              </p>
-
-              {profile.is_self && !profile.is_public && (
-                <p className="mt-5 text-sm font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
-                  Only you can see this page because your profile is private. Turn on "Public profile" in your profile settings to share it.
-                </p>
-              )}
-            </div>
-
-            {/* Watch time */}
-            <div className="mt-10">
-              <WatchTimeCard rows={watchRows} calculating={false} />
-            </div>
-
-            {/* Rows */}
-            <MediaRow
-              title="Movies"
-              items={moviesRow}
-              emptyText={moviesTab === 'queue' ? 'No movies in the queue.' : 'No completed movies yet.'}
-              tabs={{ value: moviesTab, onChange: setMoviesTab, options: TAB_OPTIONS }}
-            />
-
-            <MediaRow
-              title="Shows"
-              items={showsRow}
-              emptyText={showsTab === 'queue' ? 'No shows in the queue.' : 'No completed shows yet.'}
-              tabs={{ value: showsTab, onChange: setShowsTab, options: TAB_OPTIONS }}
-            />
-
-            <MediaRow
-              title="Favorites"
-              items={lists.favorites}
-              emptyText="No favorites yet."
-            />
-
+          <div className="min-w-0 pb-1">
+            <h1 className="truncate text-[28px] font-extrabold leading-tight tracking-[-0.035em] sm:text-[34px]">{displayName}</h1>
+            <p className="truncate text-[15px] text-muted">
+              @{profile.username}
+              <span className="mx-2" aria-hidden="true">·</span>
+              <span className="font-semibold text-ink">{counts.followers}</span> {counts.followers === 1 ? 'follower' : 'followers'}
+              <span className="mx-2" aria-hidden="true">·</span>
+              <span className="font-semibold text-ink">{counts.following}</span> following
+            </p>
           </div>
         </div>
 
+        <div className="flex-none pb-1">
+          {profile.is_self ? (
+            <Link to="/profile" className="btn btn-quiet">
+              <Icon name="pencil" />
+              Edit profile
+            </Link>
+          ) : (
+            <button
+              onClick={handleToggleFollow}
+              disabled={togglingFollow}
+              aria-pressed={isFollowing}
+              className={`btn group/follow min-w-[124px] ${isFollowing ? 'btn-on' : 'btn-primary'}`}
+            >
+              {togglingFollow ? 'Updating…' : isFollowing ? (
+                <>
+                  <span className="group-hover/follow:hidden">Following</span>
+                  <span className="hidden group-hover/follow:inline">Unfollow</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="plus" strokeWidth={2.25} />
+                  Follow
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
+
+      {profile.bio && <p className="mt-6 max-w-2xl px-1 text-[17px] leading-relaxed sm:px-6">{profile.bio}</p>}
+
+      {profile.is_self && !profile.is_public && (
+        <p className="mt-6 flex max-w-2xl items-start gap-2 rounded-[16px] bg-surface px-4 py-3 text-[15px]">
+          <Icon name="lock" className="mt-0.5 h-[18px] w-[18px] flex-none" />
+          Only you can see this page because your profile is private. Turn on “Public profile” in your profile settings to share it.
+        </p>
+      )}
+
+      {/* Watch time */}
+      <div className="mt-10">
+        <WatchTimeCard rows={watchRows} calculating={false} />
+      </div>
+
+      {/* Rows */}
+      <MediaRow
+        title="Movies"
+        items={moviesRow}
+        emptyText={moviesTab === 'queue' ? 'No movies in the queue.' : 'No completed movies yet.'}
+        tabs={{ value: moviesTab, onChange: setMoviesTab, options: TAB_OPTIONS }}
+      />
+
+      <MediaRow
+        title="Shows"
+        items={showsRow}
+        emptyText={showsTab === 'queue' ? 'No shows in the queue.' : 'No completed shows yet.'}
+        tabs={{ value: showsTab, onChange: setShowsTab, options: TAB_OPTIONS }}
+      />
+
+      <MediaRow
+        title="Favorites"
+        items={lists.favorites}
+        emptyText="No favorites yet."
+      />
     </div>
   );
 }
