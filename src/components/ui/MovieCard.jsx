@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
+import { POSTER_FALLBACK } from '../../lib/tmdb';
+import Icon from './Icon';
 
-// Notice I added 'linkUrl' to the props here
+// 6900 -> "6.9k"
+const compact = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
+
 export default function MovieCard({
   id,
   title,
@@ -16,8 +20,11 @@ export default function MovieCard({
   mediaType = 'movie',
   posterPath,
   initialInWatchlist = false,
+  initialIsWatched = false,
   onRemoved,
-  onWatchlistToggle
+  onWatchlistToggle,
+  onWatchedToggle,
+  note,
 }) {
 
   // If linkUrl is provided (like from the Discover page), use it. Otherwise, default to movie.
@@ -26,10 +33,17 @@ export default function MovieCard({
 
   const [inWatchlist, setInWatchlist] = useState(initialInWatchlist);
   const [isAdding, setIsAdding] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [isWatched, setIsWatched] = useState(initialIsWatched);
+  const [isMarkingWatched, setIsMarkingWatched] = useState(false);
 
   useEffect(() => {
     setInWatchlist(initialInWatchlist);
   }, [initialInWatchlist]);
+
+  useEffect(() => {
+    setIsWatched(initialIsWatched);
+  }, [initialIsWatched]);
 
   const handleQuickAdd = async (e) => {
     // Prevent the Link from navigating
@@ -104,111 +118,138 @@ export default function MovieCard({
     setIsAdding(false);
   };
 
-  const displayTitle = releaseYear && releaseYear !== 'N/A' ? `${title} (${releaseYear})` : title;
-  const typeLabel = genre || (mediaType === 'tv' ? 'TV Show' : 'Movie');
+  const handleToggleWatched = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isMarkingWatched) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error('Please sign in to track watches!');
+      navigate('/auth');
+      return;
+    }
+
+    setIsMarkingWatched(true);
+    const yearStr = String(releaseYear ?? '');
+    const { error } = isWatched
+      ? await supabase.rpc('uncomplete_item', {
+        p_media_id: id.toString(),
+        p_media_type: mediaType,
+      })
+      : await supabase.rpc('complete_item', {
+        p_media_id: id.toString(),
+        p_media_type: mediaType,
+        p_title: title,
+        p_poster_path: posterPath || null,
+        p_release_year: /^\d{4}$/.test(yearStr) ? yearStr : null,
+        p_vote_average: Number(rating) > 0 ? Number(rating) : null,
+      });
+
+    if (error) {
+      toast.error(isWatched
+        ? 'Failed to remove watched status. Please try again.'
+        : 'Failed to mark as watched. Please try again.');
+    } else {
+      const nextIsWatched = !isWatched;
+      setIsWatched(nextIsWatched);
+      if (nextIsWatched) {
+        setInWatchlist(false);
+        if (onWatchlistToggle) onWatchlistToggle(id, false, mediaType);
+      }
+      toast.success(nextIsWatched
+        ? `"${title}" marked as watched!`
+        : `"${title}" removed from watched history.`);
+      if (onWatchedToggle) onWatchedToggle(id, nextIsWatched, mediaType);
+    }
+    setIsMarkingWatched(false);
+  };
+
+  const typeLabel = genre || (mediaType === 'tv' ? 'Show' : 'Movie');
+  const hasRating = rating !== undefined && rating !== null && Number(rating) > 0;
+  const year = releaseYear && releaseYear !== 'N/A' ? releaseYear : null;
 
   return (
-    <Link to={destination} className="group relative block w-full h-full">
-      <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm hover:shadow-xl dark:hover:shadow-[0_0_20px_rgba(0,240,255,0.15)] transform hover:-translate-y-2 transition-all duration-300 h-full flex flex-col">
-
-        {/* Poster Image */}
-        <div className="relative aspect-[2/3] w-full overflow-hidden bg-slate-200 dark:bg-slate-800">
+    <div className="group relative">
+      <Link to={destination} className="block rounded-[10px] focus-visible:outline-offset-4">
+        <div className="poster">
           {posterUrl ? (
             <img
               src={posterUrl}
-              alt={title}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              alt=""
+              loading="lazy"
+              data-loaded={loaded}
+              onLoad={() => setLoaded(true)}
+              onError={(e) => { e.currentTarget.src = POSTER_FALLBACK; setLoaded(true); }}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-400">
-              No Image
-            </div>
+            <img src={POSTER_FALLBACK} alt="" />
           )}
-          {/* Overlay gradient on hover */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-
-          {/* Quick Add / Remove Watchlist Button */}
-          <button
-            onClick={handleQuickAdd}
-            disabled={isAdding}
-            title={inWatchlist ? 'Remove from Queue' : 'Add to Queue'}
-            className={[
-              'absolute top-2 right-2 z-10 group/btn',
-              'w-9 h-9 rounded-full flex items-center justify-center',
-              'text-white font-bold text-lg leading-none',
-              'shadow-lg backdrop-blur-sm',
-              'opacity-0 group-hover:opacity-100',
-              'transition-all duration-200',
-              'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-cyan-400',
-              inWatchlist
-                ? 'bg-emerald-500 hover:bg-red-500 scale-100'
-                : 'bg-black/50 hover:bg-[#00f0ff] hover:text-[#0b101e] scale-90 group-hover:scale-100',
-              isAdding ? 'cursor-wait' : 'cursor-pointer',
-            ].join(' ')}
-          >
-            {isAdding ? (
-              /* Spinner */
-              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-            ) : inWatchlist ? (
-              /* Checkmark at rest → X (remove) on hover, crossfade */
-              <span className="relative w-4 h-4 flex items-center justify-center">
-                {/* Checkmark — visible at rest, fades out on button hover */}
-                <svg
-                  className="absolute inset-0 w-4 h-4 transition-all duration-150 group-hover/btn:opacity-0 group-hover/btn:scale-50"
-                  fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                {/* X (remove) — hidden at rest, appears on button hover */}
-                <svg
-                  className="absolute inset-0 w-4 h-4 opacity-0 scale-50 transition-all duration-150 group-hover/btn:opacity-100 group-hover/btn:scale-100"
-                  fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </span>
-            ) : (
-              /* Plus icon */
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-            )}
-          </button>
         </div>
 
-        {/* Card Content */}
-        <div className="p-4 flex-grow flex flex-col justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate transition-colors" title={displayTitle}>
-              {displayTitle}
-            </h3>
+        <h3 className="mt-3 truncate text-[15px] font-semibold leading-snug" title={title}>{title}</h3>
+        <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-muted">
+          <span>{year || typeLabel}</span>
+          {hasRating && (
+            <>
+              <span aria-hidden="true">·</span>
+              <Icon name="star" filled className="h-3 w-3 text-data" />
+              <span className="text-ink">{Number(rating).toFixed(1)}</span>
+              {voteCount ? <span>({compact(voteCount)})</span> : null}
+            </>
+          )}
+          {note && <><span aria-hidden="true">·</span><span>{note}</span></>}
+        </p>
+      </Link>
 
-            <div className="flex items-center text-sm font-semibold text-slate-700 dark:text-slate-300 mt-2 transition-colors flex-wrap gap-x-2 gap-y-1">
-              <span className="font-bold text-slate-800 dark:text-slate-200">{typeLabel}</span>
-              {rating !== undefined && rating !== null && Number(rating) > 0 && (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">•</span>
-                  <div className="flex items-center gap-1">
-                    <svg className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                    <span>
-                      <strong className="font-bold text-slate-900 dark:text-white">{Number(rating).toFixed(1)}</strong>
-                      {voteCount !== undefined && voteCount !== null ? (
-                        <span className="text-slate-500 dark:text-slate-400 font-normal">{` (${Number(voteCount).toLocaleString()})`}</span>
-                      ) : ''}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+      <button
+        type="button"
+        onClick={handleToggleWatched}
+        disabled={isMarkingWatched}
+        aria-pressed={isWatched}
+        aria-label={isWatched ? `Remove watched status from ${title}` : `Mark ${title} as watched`}
+        title={isWatched ? 'Remove watched status' : 'Mark Watched'}
+        className={`quick group/watched absolute left-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full ${
+          isWatched ? 'bg-data text-ground hover:bg-negative' : 'bg-ground text-ink hover:bg-data hover:text-ground'
+        } ${isMarkingWatched ? 'cursor-wait' : ''}`}
+      >
+        {isMarkingWatched ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+        ) : (
+          <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12s3.5-7 9.75-7 9.75 7 9.75 7-3.5 7-9.75 7-9.75-7-9.75-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        )}
+        <span className="pointer-events-none invisible absolute left-0 top-full z-30 mt-2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[10px] font-semibold text-ground opacity-0 shadow-lg transition-opacity group-hover/watched:visible group-hover/watched:opacity-100 group-focus-visible/watched:visible group-focus-visible/watched:opacity-100">
+          {isWatched ? 'Remove watched status' : 'Mark Watched'}
+        </span>
+      </button>
 
-      </div>
-    </Link>
+      {/* Quick add / remove: stays visible while the title is in the queue */}
+      <button
+        type="button"
+        onClick={handleQuickAdd}
+        disabled={isAdding}
+        aria-pressed={inWatchlist}
+        aria-label={inWatchlist ? `Remove ${title} from your queue` : `Add ${title} to your queue`}
+        title={inWatchlist ? 'In your queue (click to remove)' : 'Add to queue'}
+        className={`quick group/btn absolute right-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full ${
+          inWatchlist ? 'bg-ink text-ground hover:bg-negative' : 'bg-ground text-ink hover:bg-ink hover:text-ground'
+        } ${isAdding ? 'cursor-wait' : ''}`}
+      >
+        {isAdding ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+        ) : inWatchlist ? (
+          <span className="relative h-[18px] w-[18px]">
+            <Icon name="check" strokeWidth={2.25} className="absolute inset-0 h-[18px] w-[18px] transition duration-200 group-hover/btn:scale-50 group-hover/btn:opacity-0" />
+            <Icon name="x" strokeWidth={2.25} className="absolute inset-0 h-[18px] w-[18px] scale-50 opacity-0 transition duration-200 group-hover/btn:scale-100 group-hover/btn:opacity-100" />
+          </span>
+        ) : (
+          <Icon name="plus" strokeWidth={2.25} className="h-[18px] w-[18px] transition-transform duration-300 group-hover/btn:rotate-90" />
+        )}
+      </button>
+    </div>
   );
 }

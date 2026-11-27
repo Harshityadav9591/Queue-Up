@@ -1,7 +1,7 @@
 export default function Badge({ children, className = '' }) {
   return (
-    <div className={`bg-primary-1 text-white px-2 py-1 rounded-md text-xs inline-block font-semibold ${className}`}>
+    <span className={`inline-flex h-6 items-center rounded-full bg-surface px-2.5 text-xs font-semibold text-ink whitespace-nowrap ${className}`}>
       {children}
-    </div>
+    </span>
   );
 }

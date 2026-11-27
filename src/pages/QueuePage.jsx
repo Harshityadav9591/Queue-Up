@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { getImageUrl, getMediaMeta } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
-import { useNavigate } from 'react-router-dom';
 
 const SORT_OPTIONS = [
   { value: 'added_desc', label: 'Recently added' },
@@ -48,9 +48,20 @@ function sortItems(list, sortBy) {
 
 // Watchlist membership is tracked per type so a movie and a show with the same TMDB id never collide
 const wlKey = (type, id) => `${type}-${id}`;
+const typeOf = (item) => item.media_type || 'movie';
+
+// The four lists, each one a count card that also filters the grid
+const VIEWS = [
+  { tab: 'queue', type: 'movie', label: 'Movies to watch', empty: 'No movies in your queue yet.' },
+  { tab: 'queue', type: 'tv', label: 'Shows to watch', empty: 'No shows in your queue yet.' },
+  { tab: 'completed', type: 'movie', label: 'Movies completed', empty: 'No completed movies yet. Mark one as watched on its page.' },
+  { tab: 'completed', type: 'tv', label: 'Shows completed', empty: 'No completed shows yet. Tick the last episode of a finished series and it lands here.' },
+];
+
+const watchedNote = (n) => (n === 1 ? 'Watched twice' : n > 1 ? `Watched ${n + 1}×` : undefined);
 
 export default function QueuePage() {
-  const [items, setItems] = useState([]);
+  const [lists, setLists] = useState({ queue: [], completed: [] });
   const [loading, setLoading] = useState(true);
   const [watchlistIds, setWatchlistIds] = useState(new Set());
 
@@ -72,6 +83,7 @@ export default function QueuePage() {
     return () => { mounted.current = false; };
   }, []);
 
+  // Both lists load together, so every count card is right from the start and switching is instant
   useEffect(() => {
     async function fetchItems() {
       setLoading(true);
@@ -81,48 +93,30 @@ export default function QueuePage() {
         return;
       }
 
-      if (activeTab === 'queue') {
-        // Single query fetch for 'watchlist'
-        const { data, error } = await supabase
-          .from('watchlist')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .order('created_at', { ascending: false });
+      const [watchlistRes, completedRes] = await Promise.all([
+        supabase.from('watchlist').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }),
+        supabase.from('completed_items').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }),
+      ]);
+      if (!mounted.current) return;
 
-        if (!error && data) {
-          setItems(data);
-          setWatchlistIds(new Set(data.map(r => wlKey(r.media_type || 'movie', r.movie_id))));
-        } else {
-          setItems([]);
-          setWatchlistIds(new Set());
-        }
-      } else {
-        // Completed Vault tab: fetch completed items and watchlist IDs in parallel
-        const [completedRes, watchlistRes] = await Promise.all([
-          supabase.from('completed_items').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }),
-          supabase.from('watchlist').select('movie_id, media_type').eq('user_id', session.user.id)
-        ]);
-
-        if (completedRes.data) setItems(completedRes.data);
-        else setItems([]);
-
-        if (watchlistRes.data) {
-          setWatchlistIds(new Set(watchlistRes.data.map(r => wlKey(r.media_type || 'movie', r.movie_id))));
-        }
-      }
-
+      const queue = !watchlistRes.error && watchlistRes.data ? watchlistRes.data : [];
+      setLists({ queue, completed: completedRes.data || [] });
+      setWatchlistIds(new Set(queue.map(r => wlKey(typeOf(r), r.movie_id))));
       setLoading(false);
     }
 
     fetchItems();
-  }, [activeTab, navigate]);
+  }, [navigate]);
+
+  const items = lists[activeTab];
 
   // Backfill missing vote_average / release_year from TMDB, one item at a time.
   // A ref guards against two loops running at once, and a "tried" set prevents retry loops.
   useEffect(() => {
     if (loading || backfillRunning.current) return;
 
-    const table = activeTab === 'queue' ? 'watchlist' : 'completed_items';
+    const tab = activeTab;
+    const table = tab === 'queue' ? 'watchlist' : 'completed_items';
     const stale = items.filter(
       i => i.vote_average == null && !backfillTried.current.has(`${table}-${i.id}`)
     );
@@ -135,9 +129,8 @@ export default function QueuePage() {
         if (!mounted.current) break;
         backfillTried.current.add(`${table}-${item.id}`);
 
-        const type = item.media_type || 'movie';
         const tmdbId = item.media_id || item.movie_id;
-        const meta = await getMediaMeta(type, tmdbId);
+        const meta = await getMediaMeta(typeOf(item), tmdbId);
         if (!meta || meta.vote_average == null) continue;
 
         const patch = { vote_average: meta.vote_average };
@@ -152,7 +145,7 @@ export default function QueuePage() {
         }
 
         if (mounted.current) {
-          setItems(prev => prev.map(p => (p.id === item.id ? { ...p, ...patch } : p)));
+          setLists(prev => ({ ...prev, [tab]: prev[tab].map(p => (p.id === item.id ? { ...p, ...patch } : p)) }));
         }
       }
 
@@ -161,21 +154,16 @@ export default function QueuePage() {
     })();
   }, [items, loading, activeTab, backfillTick]);
 
-  // Filter items instantly based on the content type toggle, then sort
-  const filteredItems = items.filter(item => {
-    const type = item.media_type || 'movie';
-    return type === contentType;
-  });
+  // Filter items instantly by the selected card, then sort
+  const filteredItems = items.filter(item => typeOf(item) === contentType);
   const sortedItems = sortItems(filteredItems, sortBy);
 
   // Called by MovieCard when an item is removed from the watchlist (Queue tab only)
   const handleRemove = (removedId, removedType = 'movie') => {
-    setItems(prev =>
-      prev.filter(i => {
-        const type = i.media_type || 'movie';
-        return !(String(i.media_id || i.movie_id) === String(removedId) && type === removedType);
-      })
-    );
+    setLists(prev => ({
+      ...prev,
+      queue: prev.queue.filter(i => !(String(i.media_id || i.movie_id) === String(removedId) && typeOf(i) === removedType)),
+    }));
     setWatchlistIds(prev => {
       const next = new Set(prev);
       next.delete(wlKey(removedType, removedId));
@@ -183,7 +171,8 @@ export default function QueuePage() {
     });
   };
 
-  // Called by MovieCard whenever the watchlist state of a card changes
+  // Called by MovieCard whenever the watchlist state of a card changes.
+  // On the Completed cards this keeps the "to watch" counts in step without a reload.
   const handleWatchlistToggle = (toggledId, added, toggledType = 'movie') => {
     setWatchlistIds(prev => {
       const next = new Set(prev);
@@ -191,108 +180,153 @@ export default function QueuePage() {
       else next.delete(wlKey(toggledType, toggledId));
       return next;
     });
+    if (activeTab !== 'completed') return;
+    setLists(prev => {
+      const isRow = (r) => String(r.movie_id) === String(toggledId) && typeOf(r) === toggledType;
+      if (!added) return { ...prev, queue: prev.queue.filter(r => !isRow(r)) };
+      if (prev.queue.some(isRow)) return prev;
+      const source = prev.completed.find(c => String(c.media_id) === String(toggledId) && typeOf(c) === toggledType);
+      if (!source) return prev;
+      const row = { ...source, id: `local-${toggledType}-${toggledId}`, movie_id: String(toggledId), created_at: new Date().toISOString() };
+      return { ...prev, queue: [row, ...prev.queue] };
+    });
   };
 
+  const handleWatchedToggle = (toggledId, watched, toggledType = 'movie') => {
+    if (watched && activeTab === 'queue') {
+      const queueItem = lists.queue.find(item =>
+        String(item.movie_id) === String(toggledId) && typeOf(item) === toggledType
+      );
+      handleRemove(toggledId, toggledType);
+      if (queueItem) {
+        const completedItem = {
+          id: `local-completed-${toggledType}-${toggledId}`,
+          media_id: String(toggledId),
+          media_type: toggledType,
+          title: queueItem.title,
+          poster_path: queueItem.poster_path,
+          release_year: queueItem.release_year,
+          vote_average: queueItem.vote_average,
+          rewatch_count: 0,
+          created_at: new Date().toISOString(),
+        };
+        setLists(prev => ({
+          ...prev,
+          completed: [
+            completedItem,
+            ...prev.completed.filter(item =>
+              !(String(item.media_id) === String(toggledId) && typeOf(item) === toggledType)
+            ),
+          ],
+        }));
+      }
+    } else if (!watched && activeTab === 'completed') {
+      setLists(prev => ({
+        ...prev,
+        completed: prev.completed.filter(item => {
+          const type = typeOf(item);
+          const id = item.media_id || item.movie_id;
+          return !(String(id) === String(toggledId) && type === toggledType);
+        }),
+      }));
+    }
+  };
+
+  const count = (tab, type) => lists[tab].filter(i => typeOf(i) === type).length;
+  const waiting = lists.queue.length;
+  const done = lists.completed.length;
+  const view = VIEWS.find(v => v.tab === activeTab && v.type === contentType);
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] p-8 pt-32 transition-colors duration-500">
-      <div className="container mx-auto">
-
-        {/* Main Tab Navigation (Queue vs Completed) */}
-        <div className="flex gap-8 mb-8 border-b border-slate-200 dark:border-white/10">
-          <button
-            onClick={() => setActiveTab('queue')}
-            className={`pb-4 text-xl font-bold transition-all ${
-              activeTab === 'queue'
-                ? 'text-blue-600 dark:text-[#00f0ff] border-b-2 border-blue-600 dark:border-[#00f0ff]'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
-            }`}
-          >
-            Watching Queue
-          </button>
-          <button
-            onClick={() => setActiveTab('completed')}
-            className={`pb-4 text-xl font-bold transition-all ${
-              activeTab === 'completed'
-                ? 'text-blue-600 dark:text-[#00f0ff] border-b-2 border-blue-600 dark:border-[#00f0ff]'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
-            }`}
-          >
-            Completed Vault
-          </button>
+    <div className="wrap pt-6 sm:pt-10">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-[28px] font-extrabold leading-none tracking-[-0.035em] sm:text-[32px]">Your queue</h1>
+          <p className="mt-2 text-[15px] text-muted">
+            {loading
+              ? 'Loading your lists…'
+              : `${waiting} ${waiting === 1 ? 'title' : 'titles'} waiting to be watched, ${done} in your Completed Vault.`}
+          </p>
         </div>
 
-        {/* Content Type Toggle (Movies vs TV) + Sort */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-10">
-          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 w-fit transition-colors">
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort items"
+          className="chip w-fit"
+        >
+          {SORT_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Count cards: each is a list, the selected one filters the grid */}
+      <div className="mt-6 grid grid-cols-2 gap-2 lg:grid-cols-4" role="group" aria-label="Which list">
+        {VIEWS.map(v => {
+          const on = v.tab === activeTab && v.type === contentType;
+          return (
             <button
-              onClick={() => setContentType('movie')}
-              className={`px-6 py-2 rounded-md font-bold transition-all ${
-                contentType === 'movie'
-                  ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              key={v.label}
+              type="button"
+              aria-pressed={on}
+              onClick={() => { setActiveTab(v.tab); setContentType(v.type); }}
+              className={`rounded-[16px] px-4 py-3.5 text-left transition-[background-color,transform] duration-300 active:scale-[0.98] ${
+                on ? 'bg-lift outline outline-[1.5px] -outline-offset-[1.5px] outline-ink' : 'bg-surface hover:bg-raised'
               }`}
             >
-              Movies
+              <span className="block text-[13px] text-muted">{v.label}</span>
+              {loading ? (
+                <span className="skeleton mt-1.5 block h-7 w-10 rounded-md bg-raised" />
+              ) : (
+                <span className="num mt-0.5 block text-[26px] font-bold leading-tight tracking-[-0.02em]">{count(v.tab, v.type)}</span>
+              )}
             </button>
-            <button
-              onClick={() => setContentType('tv')}
-              className={`px-6 py-2 rounded-md font-bold transition-all ${
-                contentType === 'tv'
-                  ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              TV & Anime
-            </button>
-          </div>
+          );
+        })}
+      </div>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            aria-label="Sort items"
-            className="bg-white dark:bg-slate-800/80 text-slate-900 dark:text-white border border-slate-300 dark:border-white/10 rounded-lg px-4 py-2 font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] transition-colors"
-          >
-            {SORT_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
+      <div className="mt-8">
         {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-            {[...Array(5)].map((_, index) => <MovieCardSkeleton key={`skeleton-${index}`} />)}
+          <div className="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {[...Array(6)].map((_, index) => <MovieCardSkeleton key={`skeleton-${index}`} />)}
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="flex justify-center items-center h-64 bg-white dark:bg-slate-900/40 rounded-xl shadow-sm border border-slate-200 dark:border-white/10 transition-colors">
-            <p className="text-xl font-medium text-slate-500 dark:text-slate-400">
-              No {contentType === 'movie' ? 'movies' : 'TV shows'} found in this section.
-            </p>
+          <div className="flex min-h-[200px] flex-col items-start justify-center gap-4 rounded-[20px] bg-surface px-6 py-8 sm:px-10">
+            <p className="text-lg font-semibold">{view.empty}</p>
+            <Link to={`/discover${contentType === 'tv' ? '?type=tv' : ''}`} className="btn btn-primary btn-sm">
+              Find {contentType === 'tv' ? 'a show' : 'a movie'} on Discover
+            </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-            {sortedItems.map((item) => {
+          <div className="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {sortedItems.map((item, i) => {
               // The watchlist table uses 'movie_id', the completed table uses 'media_id'. This handles both.
               const targetId = item.media_id || item.movie_id;
-              const type = item.media_type || 'movie';
+              const type = typeOf(item);
               const isInWatchlist = activeTab === 'queue' || watchlistIds.has(wlKey(type, targetId));
 
               return (
-                <MovieCard
-                  key={item.id}
-                  id={targetId}
-                  title={item.title}
-                  genre={activeTab === 'queue' ? 'In Queue' : 'Completed'}
-                  releaseYear={item.release_year}
-                  rating={item.vote_average}
-                  posterUrl={getImageUrl(item.poster_path)}
-                  posterPath={item.poster_path}
-                  mediaType={type}
-                  initialInWatchlist={isInWatchlist}
-                  // On the Vault tab, the card button only edits the watchlist, so the card must stay visible
-                  onRemoved={activeTab === 'queue' ? handleRemove : undefined}
-                  onWatchlistToggle={handleWatchlistToggle}
-                  linkUrl={`/${type}/${targetId}`}
-                />
+                <div key={item.id} className="arrive" style={{ '--i': i % 12 }}>
+                  <MovieCard
+                    id={targetId}
+                    title={item.title}
+                    genre={activeTab === 'queue' ? 'In queue' : 'Completed'}
+                    releaseYear={item.release_year}
+                    rating={item.vote_average}
+                    posterUrl={getImageUrl(item.poster_path, 'w342')}
+                    posterPath={item.poster_path}
+                    mediaType={type}
+                    initialInWatchlist={isInWatchlist}
+                    initialIsWatched={activeTab === 'completed'}
+                    // On the Vault cards, the card button only edits the watchlist, so the card must stay visible
+                    onRemoved={activeTab === 'queue' ? handleRemove : undefined}
+                    onWatchlistToggle={handleWatchlistToggle}
+                    onWatchedToggle={handleWatchedToggle}
+                    linkUrl={`/${type}/${targetId}`}
+                    note={activeTab === 'completed' ? watchedNote(item.rewatch_count || 0) : undefined}
+                  />
+                </div>
               );
             })}
           </div>

@@ -9,7 +9,8 @@ export default function VirtualizedGrid({
   items, 
   renderItem, 
   itemKey, 
-  gap = 24, // 24px matches Tailwind gap-6
+  gap = 20, // horizontal gap between posters
+  rowGap = 36, // vertical gap between rows (the title sits under each poster)
   overscan = 2 // number of extra rows above/below viewport to keep rendered
 }) {
   const containerRef = useRef(null);
@@ -68,21 +69,22 @@ export default function VirtualizedGrid({
 
   // 3. Compute responsive column count based on container width
   const columnsCount = useMemo(() => {
-    if (containerWidth >= 1024) return 5; // lg
-    if (containerWidth >= 768) return 4;  // md
-    if (containerWidth >= 640) return 2;  // sm
-    return 1;
+    if (containerWidth >= 1100) return 6;
+    if (containerWidth >= 860) return 5;
+    if (containerWidth >= 640) return 4;
+    if (containerWidth >= 420) return 3;
+    return 2;
   }, [containerWidth]);
 
   // 4. Calculate total effective row height (row height + gap)
   const effectiveRowHeight = useMemo(() => {
-    if (measuredRowHeight > 0) return measuredRowHeight + gap;
+    if (measuredRowHeight > 0) return measuredRowHeight + rowGap;
     if (containerWidth === 0) return 420; // safe fallback
     const cardWidth = (containerWidth - (columnsCount - 1) * gap) / columnsCount;
     const posterHeight = cardWidth * 1.5; // 2:3 aspect ratio
-    const cardContentHeight = 90;
-    return posterHeight + cardContentHeight + gap;
-  }, [measuredRowHeight, containerWidth, columnsCount, gap]);
+    const cardContentHeight = 52;
+    return posterHeight + cardContentHeight + rowGap;
+  }, [measuredRowHeight, containerWidth, columnsCount, gap, rowGap]);
 
   // 5. Slice items array into row chunks
   const rows = useMemo(() => {
@@ -114,7 +116,7 @@ export default function VirtualizedGrid({
       {topPadding > 0 && <div style={{ height: `${topPadding}px` }} aria-hidden="true" />}
 
       {/* Currently visible rows */}
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col" style={{ rowGap }}>
         {visibleRows.map((row, rowIndexOffset) => {
           const actualRowIndex = startRow + rowIndexOffset;
           const isFirstRendered = rowIndexOffset === 0;
@@ -123,12 +125,17 @@ export default function VirtualizedGrid({
             <div
               key={`row-${actualRowIndex}`}
               ref={isFirstRendered ? rowRef : null}
-              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full"
+              className="grid w-full"
+              style={{ gridTemplateColumns: `repeat(${columnsCount}, minmax(0, 1fr))`, columnGap: gap }}
             >
               {row.map((item, colIndex) => {
                 const globalIndex = actualRowIndex * columnsCount + colIndex;
                 return (
-                  <div key={itemKey ? itemKey(item, globalIndex) : globalIndex} className="h-full">
+                  <div
+                    key={itemKey ? itemKey(item, globalIndex) : globalIndex}
+                    className="arrive h-full"
+                    style={{ '--i': colIndex }}
+                  >
                     {renderItem(item, globalIndex)}
                   </div>
                 );

@@ -6,6 +6,8 @@ import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
 import VirtualizedGrid from '../components/ui/VirtualizedGrid';
 import MultiSelect from '../components/ui/MultiSelect';
 import { supabase } from '../lib/supabase';
+import Segmented from '../components/ui/Segmented';
+import Icon from '../components/ui/Icon';
 
 const SORT_OPTIONS = [
   { value: 'popularity', label: 'Most popular' },
@@ -27,6 +29,7 @@ export default function DiscoverPage() {
   const selectedYear = searchParams.get('year') ? searchParams.get('year').split(',').filter(Boolean) : [];
   const selectedLanguage = searchParams.get('lang') ? searchParams.get('lang').split(',').filter(Boolean) : [];
   const watchlistFilter = searchParams.get('watchlist') || 'all';
+  const hideWatched = searchParams.get('hideWatched') === 'true';
   const rawSort = searchParams.get('sort');
   const sortBy = SORT_VALUES.includes(rawSort) ? rawSort : 'popularity';
 
@@ -42,6 +45,7 @@ export default function DiscoverPage() {
 
   // Pre-fetched watchlist IDs for the current user and current content type (avoids per-card DB queries)
   const [watchlistIds, setWatchlistIds] = useState(new Set());
+  const [watchedIds, setWatchedIds] = useState(new Set());
 
   // Infinite Scroll Sentinel Ref
   const sentinelRef = useRef(null);
@@ -54,6 +58,7 @@ export default function DiscoverPage() {
       year: selectedYear,
       lang: selectedLanguage,
       watchlist: watchlistFilter,
+      hideWatched,
       sort: sortBy,
       ...updated,
     };
@@ -69,6 +74,7 @@ export default function DiscoverPage() {
     if (yearStr) newParams.year = yearStr;
     if (langStr) newParams.lang = langStr;
     if (next.watchlist && next.watchlist !== 'all') newParams.watchlist = next.watchlist;
+    if (next.hideWatched) newParams.hideWatched = 'true';
     if (next.sort && next.sort !== 'popularity') newParams.sort = next.sort;
 
     setSearchParams(newParams, { replace: true });
@@ -102,10 +108,22 @@ export default function DiscoverPage() {
     });
   };
 
-  // Filter items based on watchlist selection
-  const displayItems = watchlistFilter === 'not_in_watchlist'
-    ? items.filter(item => !watchlistIds.has(item.id.toString()))
-    : items;
+  const handleWatchedToggle = (id, watched) => {
+    setWatchedIds(prev => {
+      const next = new Set(prev);
+      if (watched) next.add(id.toString());
+      else next.delete(id.toString());
+      return next;
+    });
+  };
+
+  // Filter items based on watchlist and watched selection
+  const displayItems = items.filter(item => {
+    const itemId = item.id.toString();
+    const matchesWatchlist = watchlistFilter !== 'not_in_watchlist' || !watchlistIds.has(itemId);
+    const matchesWatched = !hideWatched || !watchedIds.has(itemId);
+    return matchesWatchlist && matchesWatched;
+  });
 
   // 1. Fetch Genres + Languages + user's watchlist IDs whenever contentType changes
   useEffect(() => {
@@ -122,18 +140,38 @@ export default function DiscoverPage() {
     async function fetchWatchlistData() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const { data: wlData } = await supabase
-          .from('watchlist')
-          .select('movie_id, media_type')
-          .eq('user_id', session.user.id);
-        if (wlData) {
+        const [watchlistRes, completedRes, watchedRes] = await Promise.all([
+          supabase
+            .from('watchlist')
+            .select('movie_id, media_type')
+            .eq('user_id', session.user.id),
+          supabase
+            .from('completed_items')
+            .select('media_id')
+            .eq('user_id', session.user.id)
+            .eq('media_type', contentType),
+          contentType === 'movie'
+            ? supabase
+              .from('watched_movies')
+              .select('movie_id')
+              .eq('user_id', session.user.id)
+            : Promise.resolve({ data: [] }),
+        ]);
+        if (watchlistRes.data) {
           // Only keep entries of the type being browsed, so a movie and a show with the same TMDB id never collide
           setWatchlistIds(new Set(
-            wlData
+            watchlistRes.data
               .filter(r => (r.media_type || 'movie') === contentType)
               .map(r => String(r.movie_id))
           ));
         }
+        setWatchedIds(new Set([
+          ...(completedRes.data || []).map(r => String(r.media_id)),
+          ...(watchedRes.data || []).map(r => String(r.movie_id)),
+        ]));
+      } else {
+        setWatchlistIds(new Set());
+        setWatchedIds(new Set());
       }
     }
 
@@ -214,103 +252,139 @@ export default function DiscoverPage() {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 1949 }, (_, i) => currentYear - i);
 
+  // The scope of the grid in words, built from the same filters the grid uses
+  const typeWord = contentType === 'tv' ? 'shows and anime' : 'movies';
+  const genreNames = selectedGenre.map(id => genres.find(g => String(g.id) === String(id))?.name).filter(Boolean);
+  const langNames = selectedLanguage.map(code => languages.find(l => l.iso_639_1 === code)?.english_name).filter(Boolean);
+  const sortedYears = [...selectedYear].map(Number).sort((a, b) => a - b);
+  const yearWords = sortedYears.length === 0 ? '' : sortedYears.length === 1 ? ` from ${sortedYears[0]}` : ` from ${sortedYears[0]} to ${sortedYears[sortedYears.length - 1]}`;
+  const sortWords = {
+    popularity: 'Most popular', rating_desc: 'Highest rated', rating_asc: 'Lowest rated', year_desc: 'Newest',
+    year_asc: 'Oldest', name_asc: 'A to Z:', name_desc: 'Z to A:',
+  }[sortBy];
+  const scope = `${sortWords} ${genreNames.length ? `${genreNames.join(', ')} ` : ''}${typeWord}${yearWords}${langNames.length ? ` in ${langNames.join(', ')}` : ''}`;
+  const hasFilters = selectedGenre.length > 0 || selectedYear.length > 0 || selectedLanguage.length > 0 || watchlistFilter !== 'all' || hideWatched;
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] p-8 pt-32 transition-colors duration-500">
-      <div className="container mx-auto">
-        
-        {/* Header & Type Toggle */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <h1 className="text-4xl font-bold text-slate-900 dark:text-white transition-colors">
-            Discover <span className="text-blue-600 dark:text-[#00f0ff]">Entertainment</span>
-          </h1>
-          
-          {/* Movies vs TV Shows Toggle Switch */}
-          <div className="flex bg-slate-200 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-300 dark:border-white/10 transition-colors">
-            <button
-              onClick={() => updateFilters({ type: 'movie', genre: [], year: [], lang: [] })}
-              className={`px-6 py-2 rounded-md font-bold transition-all ${
-                contentType === 'movie' 
-                  ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Movies
-            </button>
-            <button
-              onClick={() => updateFilters({ type: 'tv', genre: [], year: [], lang: [] })}
-              className={`px-6 py-2 rounded-md font-bold transition-all ${
-                contentType === 'tv' 
-                  ? 'bg-white dark:bg-[#0b101e] text-blue-600 dark:text-[#00f0ff] shadow-sm' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              TV & Anime
-            </button>
-          </div>
+    <div className="wrap pt-6 sm:pt-10">
+
+      {/* Title row: the page, its scope, and what it shows */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-extrabold leading-none tracking-[-0.035em] sm:text-[32px]">Discover</h1>
+          <p className="mt-2 text-[15px] text-muted">{scope}, from TMDB.</p>
         </div>
 
-        {/* Filter Bar */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center flex-wrap z-20 relative">
-          <MultiSelect
-            label="Genres"
-            placeholder="All Genres"
-            options={genres.map(g => ({ value: String(g.id), label: g.name }))}
-            selected={selectedGenre}
-            onChange={(newGenres) => updateFilters({ genre: newGenres })}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {hasFilters && (
+            <button
+              type="button"
+              className="chip bg-transparent px-3 text-muted hover:text-ink"
+              onClick={() => updateFilters({ genre: [], year: [], lang: [], watchlist: 'all', hideWatched: false })}
+            >
+              Clear filters
+            </button>
+          )}
+          <Segmented
+            label="What to browse"
+            value={contentType}
+            onChange={(type) => updateFilters({ type, genre: [], year: [], lang: [] })}
+            options={[
+              { value: 'movie', label: 'Movies' },
+              { value: 'tv', label: 'TV & anime' },
+            ]}
           />
-
-          <MultiSelect
-            label="Years"
-            placeholder="All Years"
-            options={years.map(year => ({ value: String(year), label: String(year) }))}
-            selected={selectedYear}
-            onChange={(newYears) => updateFilters({ year: newYears })}
-          />
-
-          <MultiSelect
-            label="Languages"
-            placeholder="All Languages"
-            options={languages.map(lang => ({ value: lang.iso_639_1, label: lang.english_name || lang.name }))}
-            selected={selectedLanguage}
-            onChange={(newLangs) => updateFilters({ lang: newLangs })}
-          />
-
-          {/* Watchlist Filter Dropdown */}
-          <select 
-            value={watchlistFilter} 
-            onChange={(e) => updateFilters({ watchlist: e.target.value })}
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            <option value="all">All Content</option>
-            <option value="not_in_watchlist">Not in My Queue</option>
-          </select>
-
-          {/* Sort Dropdown (sorted by TMDB across all results) */}
-          <select
-            value={sortBy}
-            onChange={(e) => updateFilters({ sort: e.target.value })}
-            aria-label="Sort results"
-            className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] shadow-sm transition-colors"
-          >
-            {SORT_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
         </div>
-        
+      </div>
+
+      {/* Filter row: scrolls sideways on a phone, wraps on wider screens */}
+      <div className="relative z-20 mt-6 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+        <MultiSelect
+          label="Genres"
+          fullWidth
+          placeholder="All genres"
+          options={genres.map(g => ({ value: String(g.id), label: g.name }))}
+          selected={selectedGenre}
+          onChange={(newGenres) => updateFilters({ genre: newGenres })}
+        />
+
+        <MultiSelect
+          label="Years"
+          fullWidth
+          placeholder="Any year"
+          options={years.map(year => ({ value: String(year), label: String(year) }))}
+          selected={selectedYear}
+          onChange={(newYears) => updateFilters({ year: newYears })}
+        />
+
+        <MultiSelect
+          label="Languages"
+          fullWidth
+          placeholder="Any language"
+          options={languages.map(lang => ({ value: lang.iso_639_1, label: lang.english_name || lang.name }))}
+          selected={selectedLanguage}
+          onChange={(newLangs) => updateFilters({ lang: newLangs })}
+        />
+
+        {/* Hide what is already in your queue */}
+        <button
+          type="button"
+          className="chip w-full justify-center gap-1.5 px-2 sm:w-auto sm:justify-start sm:gap-2 sm:px-4"
+          aria-pressed={watchlistFilter === 'not_in_watchlist'}
+          data-active={watchlistFilter === 'not_in_watchlist'}
+          onClick={() => updateFilters({ watchlist: watchlistFilter === 'not_in_watchlist' ? 'all' : 'not_in_watchlist' })}
+        >
+          <Icon name={watchlistFilter === 'not_in_watchlist' ? 'check' : 'plus'} className="-ml-1" strokeWidth={2} />
+          Hide queued
+        </button>
+
+        <button
+          type="button"
+          className="chip w-full justify-center gap-1.5 px-2 sm:w-auto sm:justify-start sm:gap-2 sm:px-4"
+          aria-pressed={hideWatched}
+          data-active={hideWatched}
+          onClick={() => updateFilters({ hideWatched: !hideWatched })}
+        >
+          <Icon name={hideWatched ? 'check' : 'eye'} className="-ml-1" strokeWidth={2} />
+          Hide Watched
+        </button>
+
+        {/* Sort (sorted by TMDB across all results) */}
+        <select
+          value={sortBy}
+          onChange={(e) => updateFilters({ sort: e.target.value })}
+          aria-label="Sort results"
+          className="chip w-full sm:ml-auto sm:w-auto"
+        >
+          {SORT_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mt-8">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-            {[...Array(10)].map((_, index) => (
+          <div className="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {[...Array(12)].map((_, index) => (
               <MovieCardSkeleton key={`skeleton-${index}`} />
             ))}
           </div>
         ) : displayItems.length === 0 ? (
-          <div className="flex justify-center items-center h-64 bg-white dark:bg-slate-900/40 rounded-xl shadow-sm border border-slate-200 dark:border-white/10 transition-colors">
-            <p className="text-xl font-medium text-slate-500 dark:text-slate-400">
-              {items.length > 0 
-                ? "All loaded items are already in your queue." 
-                : "No content found matching those filters."}
+          <div className="flex min-h-[220px] flex-col items-start justify-center gap-4 rounded-[20px] bg-surface px-6 py-8 sm:px-10">
+            <p className="text-lg font-semibold">
+              {items.length > 0
+                ? hideWatched && watchlistFilter === 'not_in_watchlist'
+                  ? 'Everything loaded so far is already queued or watched.'
+                  : hideWatched
+                    ? 'Everything loaded so far is already marked as watched.'
+                    : 'Everything loaded so far is already in your queue.'
+                : 'Nothing on TMDB matches those filters.'}
             </p>
+            {hasFilters && (
+              <button className="btn btn-primary btn-sm" onClick={() => updateFilters({ genre: [], year: [], lang: [], watchlist: 'all', hideWatched: false })}>
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -323,39 +397,36 @@ export default function DiscoverPage() {
                 const year = releaseDate ? releaseDate.substring(0, 4) : 'N/A';
 
                 return (
-                  <MovieCard 
-                    id={item.id} 
-                    title={title} 
-                    genre={contentType === 'tv' ? 'TV Show' : 'Movie'} 
-                    releaseYear={year} 
+                  <MovieCard
+                    id={item.id}
+                    title={title}
+                    genre={contentType === 'tv' ? 'Show' : 'Movie'}
+                    releaseYear={year}
                     rating={item.vote_average}
                     voteCount={item.vote_count}
-                    posterUrl={getImageUrl(item.poster_path)}
+                    posterUrl={getImageUrl(item.poster_path, 'w342')}
                     posterPath={item.poster_path}
                     mediaType={contentType}
                     initialInWatchlist={watchlistIds.has(item.id.toString())}
+                    initialIsWatched={watchedIds.has(item.id.toString())}
                     onWatchlistToggle={handleWatchlistToggle}
-                    linkUrl={`/${contentType}/${item.id}`} 
+                    onWatchedToggle={handleWatchedToggle}
+                    linkUrl={`/${contentType}/${item.id}`}
                   />
                 );
               }}
             />
 
-            {/* Bottom Sentinel for Infinite Scroll */}
-            <div ref={sentinelRef} className="h-16 my-8 flex justify-center items-center">
+            {/* Bottom sentinel for infinite scroll */}
+            <div ref={sentinelRef} className="my-10 flex h-16 items-center justify-center">
               {loadingMore && (
-                <div className="flex items-center gap-3 text-blue-600 dark:text-[#00f0ff] font-bold">
-                  <svg className="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  <span>Loading more content...</span>
+                <div className="flex items-center gap-3 text-[15px] font-semibold text-muted">
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-r-transparent" />
+                  Loading more titles
                 </div>
               )}
               {!hasMore && items.length > 0 && (
-                <p className="text-slate-500 dark:text-slate-400 font-medium">
-                  🎉 You've reached the end of the list!
-                </p>
+                <p className="text-[15px] text-muted">That’s the end of this list.</p>
               )}
             </div>
           </>

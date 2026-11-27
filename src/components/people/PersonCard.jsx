@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { followersLabel } from '../../lib/people';
+import Avatar from '../ui/Avatar';
+import Icon from '../ui/Icon';
 
 // One search result for a person. Links to their public profile.
 export default function PersonCard({ person }) {
@@ -8,23 +10,18 @@ export default function PersonCard({ person }) {
   return (
     <Link
       to={`/u/${person.username}`}
-      className="flex items-center gap-4 rounded-xl bg-slate-100 dark:bg-slate-800/60 p-4 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+      className="group flex items-center gap-4 rounded-[20px] bg-surface p-4 transition-colors duration-300 hover:bg-raised"
     >
-      {person.avatar_url ? (
-        <img src={person.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-slate-200 dark:bg-slate-700" />
-      ) : (
-        <span className="w-14 h-14 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xl font-bold text-slate-900 dark:text-white flex-shrink-0">
-          {name.replace('@', '').charAt(0).toUpperCase()}
-        </span>
-      )}
+      <Avatar url={person.avatar_url} name={person.nickname || person.username} size="h-14 w-14 text-xl" />
 
-      <div className="min-w-0">
-        <p className="font-bold text-lg text-slate-900 dark:text-white truncate">{name}</p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
-          {person.nickname ? `@${person.username} • ` : ''}{followersLabel(person.followers_count)}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[17px] font-semibold">{name}</p>
+        <p className="truncate text-sm text-muted">
+          {person.nickname ? `@${person.username} · ` : ''}<span>{followersLabel(person.followers_count)}</span>
         </p>
-        {person.bio && <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 line-clamp-2">{person.bio}</p>}
+        {person.bio && <p className="mt-1 line-clamp-2 text-sm">{person.bio}</p>}
       </div>
+      <Icon name="arrowRight" className="h-5 w-5 flex-none text-muted transition-transform duration-300 group-hover:translate-x-1 group-hover:text-ink" />
     </Link>
   );
 }

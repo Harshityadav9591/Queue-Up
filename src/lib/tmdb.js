@@ -1,7 +1,13 @@
+import * as sample from './demo/tmdbDemo';
+
 const BASE_URL = 'https://api.themoviedb.org/3';
+
+// Without a TMDB key the app runs on the small sample catalogue in lib/demo, so it can still be seen
+export const isSampleCatalogue = !import.meta.env.VITE_TMDB_API_KEY;
 
 // Fetch genres dynamically based on type ('movie' or 'tv')
 export async function getGenres(type = 'movie') {
+  if (isSampleCatalogue) return sample.getGenres(type);
   try {
     const res = await fetch(`${BASE_URL}/genre/${type}/list?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     const data = await res.json();
@@ -37,6 +43,7 @@ export const POPULAR_LANGUAGES = [
 ];
 
 export async function getLanguages() {
+  if (isSampleCatalogue) return POPULAR_LANGUAGES;
   try {
     const res = await fetch(`${BASE_URL}/configuration/languages?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     const data = await res.json();
@@ -54,6 +61,7 @@ export async function getLanguages() {
 
 // Fetch content dynamically (Movies or TV Shows/Anime)
 export async function getDiscoverContent(type = 'movie', page = 1, genre = '', year = '', language = '', sortBy = 'popularity') {
+  if (isSampleCatalogue) return sample.getDiscoverContent(type, page, genre, year, language, sortBy);
   try {
     const yearParam = type === 'movie' ? 'primary_release_year' : 'first_air_date_year';
     
@@ -127,6 +135,7 @@ export async function getDiscoverContent(type = 'movie', page = 1, genre = '', y
 }
 
 export async function searchMovies(query) {
+  if (isSampleCatalogue) return sample.searchMovies(query);
   if (!import.meta.env.VITE_TMDB_API_KEY || !query) return [];
 
   try {
@@ -145,11 +154,15 @@ export async function searchMovies(query) {
   }
 }
 
+// Shown wherever TMDB has no picture
+export const POSTER_FALLBACK = '/poster-fallback.svg';
+
 export function getImageUrl(path, size = 'w500') {
-  return path ? `https://image.tmdb.org/t/p/${size}${path}` : '/movie-poster.jpg';
+  return path ? `https://image.tmdb.org/t/p/${size}${path}` : POSTER_FALLBACK;
 }
 
 export async function getMovieDetails(id) {
+  if (isSampleCatalogue) return sample.getMovieDetails(id);
   if (!import.meta.env.VITE_TMDB_API_KEY || !id) return null;
 
   try {
@@ -170,6 +183,7 @@ export async function getMovieDetails(id) {
 
 // Fetch TV Show / Anime Details
 export async function getShowDetails(id) {
+  if (isSampleCatalogue) return sample.getShowDetails(id);
   try {
     const res = await fetch(`${BASE_URL}/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}&append_to_response=credits,videos,images,reviews,similar,recommendations&include_image_language=en,null`);
     return await res.json();
@@ -181,6 +195,7 @@ export async function getShowDetails(id) {
 
 // Fetch individual Season Details (including all episodes)
 export async function getSeasonDetails(showId, seasonNumber) {
+  if (isSampleCatalogue) return sample.getSeasonDetails(showId, seasonNumber);
   try {
     const res = await fetch(`${BASE_URL}/tv/${showId}/season/${seasonNumber}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     return await res.json();
@@ -192,6 +207,7 @@ export async function getSeasonDetails(showId, seasonNumber) {
 
 // Universal Search (Movies & TV Shows)
 export async function searchContent(query, page = 1) {
+  if (isSampleCatalogue) return sample.searchContent(query, page);
   try {
     const res = await fetch(`${BASE_URL}/search/multi?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=${page}`);
     const data = await res.json();
@@ -206,6 +222,7 @@ export async function searchContent(query, page = 1) {
 
 // Live search for the navbar dropdown (abortable, no page param)
 export async function searchContentLive(query, signal) {
+  if (isSampleCatalogue) return sample.searchContentLive(query);
   const res = await fetch(
     `${BASE_URL}/search/multi?api_key=${import.meta.env.VITE_TMDB_API_KEY}&query=${encodeURIComponent(query)}&include_adult=false`,
     { signal }
@@ -217,6 +234,7 @@ export async function searchContentLive(query, signal) {
 
 // Lightweight metadata (no credits/videos), used to backfill release_year and vote_average
 export async function getMediaMeta(type, id) {
+  if (isSampleCatalogue) return sample.getMediaMeta(type, id);
   try {
     const res = await fetch(`${BASE_URL}/${type}/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     if (!res.ok) return null;
@@ -234,6 +252,7 @@ export async function getMediaMeta(type, id) {
 
 // Lightweight TV show info (no credits/videos): season list and typical episode length, used by the runtime backfill
 export async function getShowBasics(id) {
+  if (isSampleCatalogue) return sample.getShowBasics(id);
   try {
     const res = await fetch(`${BASE_URL}/tv/${id}?api_key=${import.meta.env.VITE_TMDB_API_KEY}`);
     if (!res.ok) return null;

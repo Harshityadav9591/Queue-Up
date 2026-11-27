@@ -2,24 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
-    <title>Queue Up</title>
+    <title>Queue Up — track every movie, show and episode</title>
+    <meta name="description" content="Queue Up is a free tracker for movies, TV and anime. Keep a queue, tick off every episode, see your watch time and share a public profile." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#0b0c08" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..900;1,400..700&display=swap" rel="stylesheet" />
     <script>
-      (function() {
+      // Set the theme before the first paint so the page never flashes the wrong colours.
+      // Dark (house lights down) is the default; a theme the visitor picked is remembered.
+      (function () {
+        var root = document.documentElement;
+        root.classList.add('js');
         try {
-          const savedTheme = localStorage.getItem('theme');
-          if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-          }
-        } catch (e) {}
+          var saved = localStorage.getItem('theme');
+          var dark = saved ? saved === 'dark' : true;
+          if (dark) root.classList.add('dark');
+          root.dataset.theme = dark ? 'dark' : 'light';
+          if (!dark) document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ecebe7');
+        } catch (e) {
+          root.classList.add('dark');
+          root.dataset.theme = 'dark';
+        }
       })();
     </script>
   </head>

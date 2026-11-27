@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getImageUrl } from '../../lib/tmdb';
 import MediaRow from '../profile/MediaRow';
+import Avatar from '../ui/Avatar';
+import Icon from '../ui/Icon';
 
 const MAX_PHOTOS = 5;
 const MAX_REVIEWS = 4;
@@ -52,14 +54,6 @@ const GRID_BY_COUNT = {
   4: 'grid-cols-2 md:grid-cols-4',
 };
 
-function ChevronIcon({ direction }) {
-  return (
-    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d={direction === 'left' ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'} />
-    </svg>
-  );
-}
-
 export default function DetailsExtras({ item, mediaType }) {
   const [openPhoto, setOpenPhoto] = useState(null);
   const [expanded, setExpanded] = useState({});
@@ -68,10 +62,6 @@ export default function DetailsExtras({ item, mediaType }) {
   const photos = pickPhotos(item);
   const reviews = (item.reviews?.results || []).slice(0, MAX_REVIEWS);
   const similar = pickSimilar(item, mediaType);
-
-  const rating = Number(item.vote_average) || 0;
-  const votes = Number(item.vote_count) || 0;
-  const isRated = rating > 0 && votes > 0;
   const mosaic = photos.length >= MAX_PHOTOS;
 
   // Photo viewer: Escape closes it, arrow keys move between photos
@@ -95,10 +85,10 @@ export default function DetailsExtras({ item, mediaType }) {
     <>
       {/* ---------- Photos ---------- */}
       {photos.length > 0 && (
-        <section className="container mx-auto px-6 max-w-5xl mt-16 md:mt-24">
-          <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Photos</h2>
+        <section className="wrap mt-16" aria-labelledby="photos-heading">
+          <h2 id="photos-heading" className="mb-5 text-xl font-bold">Photos</h2>
 
-          <div className={`grid gap-3 ${mosaic ? 'grid-cols-2 md:grid-cols-4' : GRID_BY_COUNT[photos.length] || 'grid-cols-2 md:grid-cols-4'}`}>
+          <div className={`grid gap-2 sm:gap-3 ${mosaic ? 'grid-cols-2 md:grid-cols-4' : GRID_BY_COUNT[photos.length] || 'grid-cols-2 md:grid-cols-4'}`}>
             {photos.map((photo, i) => {
               const isLead = mosaic && i === 0;
               // With exactly 3 photos on a phone, let the last one span both columns so no cell is left empty
@@ -109,15 +99,15 @@ export default function DetailsExtras({ item, mediaType }) {
                   type="button"
                   onClick={() => setOpenPhoto(i)}
                   aria-label={`Open photo ${i + 1} of ${photos.length} from ${title}`}
-                  className={`group overflow-hidden rounded-xl bg-slate-200 dark:bg-slate-800 ${
-                    isLead ? 'col-span-2 md:row-span-2 aspect-video md:aspect-auto' : `aspect-video ${fillsRow}`
+                  className={`group overflow-hidden rounded-[12px] bg-surface ${
+                    isLead ? 'col-span-2 aspect-video md:row-span-2 md:aspect-auto' : `aspect-video ${fillsRow}`
                   }`}
                 >
                   <img
                     src={getImageUrl(photo.file_path, isLead ? 'w1280' : 'w780')}
                     alt={`Photo from ${title}`}
                     loading="lazy"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-700 ease-out-soft group-hover:scale-[1.04]"
                   />
                 </button>
               );
@@ -126,109 +116,84 @@ export default function DetailsExtras({ item, mediaType }) {
         </section>
       )}
 
-      {/* ---------- Rating and reviews ---------- */}
-      <section className="container mx-auto px-6 max-w-5xl mt-16 md:mt-24">
-        <div className="grid gap-12 md:grid-cols-[minmax(0,300px)_1fr]">
-
-          <div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 transition-colors">Rating</h2>
-            {isRated ? (
-              <>
-                <p className="text-slate-900 dark:text-white font-black leading-none">
-                  <span className="text-8xl tracking-tight">{rating.toFixed(1)}</span>
-                  <span className="text-2xl font-bold text-slate-500 dark:text-slate-400"> / 10</span>
-                </p>
-                <div
-                  className="mt-6 h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"
-                  role="img"
-                  aria-label={`Rated ${rating.toFixed(1)} out of 10`}
-                >
-                  <div className="h-full rounded-full bg-blue-600 dark:bg-[#00f0ff]" style={{ width: `${Math.min(100, Math.round(rating * 10))}%` }}></div>
-                </div>
-                <p className="mt-4 text-base text-slate-600 dark:text-slate-300">
-                  Average of {votes.toLocaleString()} {votes === 1 ? 'vote' : 'votes'} on TMDB.
-                </p>
-              </>
-            ) : (
-              <p className="text-lg text-slate-600 dark:text-slate-300">Not enough votes on TMDB to show a rating yet.</p>
-            )}
-          </div>
-
-          <div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-3 transition-colors">Reviews</h2>
-            <p className="text-base text-slate-600 dark:text-slate-300 mb-8">
-              Written by TMDB members, so they may contain spoilers.
-            </p>
-
-            {reviews.length === 0 ? (
-              <p className="text-lg text-slate-600 dark:text-slate-300">No reviews on TMDB yet.</p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {reviews.map((review) => {
-                  const body = cleanReview(review.content);
-                  const isLong = body.length > REVIEW_PREVIEW_CHARS;
-                  const isOpen = !!expanded[review.id];
-                  const shown = isLong && !isOpen ? `${body.slice(0, REVIEW_PREVIEW_CHARS).trimEnd()}…` : body;
-                  const author = review.author || 'Anonymous';
-                  const given = review.author_details?.rating;
-
-                  return (
-                    <article key={review.id} className="bg-slate-100 dark:bg-slate-800/60 rounded-xl p-6 transition-colors">
-                      <div className="flex items-center gap-3 mb-4">
-                        <span className="w-10 h-10 rounded-full bg-slate-300 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-900 dark:text-white flex-shrink-0">
-                          {author.charAt(0).toUpperCase()}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="font-bold text-slate-900 dark:text-white truncate">{author}</p>
-                          <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {formatDate(review.created_at)}
-                            {given ? ` • rated it ${given}/10` : ''}
-                          </p>
-                        </div>
-                      </div>
-
-                      <p className="text-base leading-relaxed text-slate-900 dark:text-slate-100 whitespace-pre-line break-words">{shown}</p>
-
-                      {isLong && (
-                        <button
-                          type="button"
-                          onClick={() => setExpanded((prev) => ({ ...prev, [review.id]: !isOpen }))}
-                          className="mt-4 font-bold text-blue-600 dark:text-[#00f0ff] hover:underline"
-                        >
-                          {isOpen ? 'Show less' : 'Read more'}
-                        </button>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+      {/* ---------- Reviews ---------- */}
+      <section className="wrap mt-16" aria-labelledby="reviews-heading">
+        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="reviews-heading" className="text-xl font-bold">Reviews</h2>
+          <p className="text-[13px] text-muted">Written by TMDB members, so they may contain spoilers.</p>
         </div>
+
+        {reviews.length === 0 ? (
+          <div className="flex min-h-[96px] items-center rounded-[20px] bg-surface px-6">
+            <p className="text-[15px] text-muted">No reviews on TMDB yet.</p>
+          </div>
+        ) : (
+          <div className="grid items-start gap-3 md:grid-cols-2">
+            {reviews.map((review) => {
+              const body = cleanReview(review.content);
+              const isLong = body.length > REVIEW_PREVIEW_CHARS;
+              const isOpen = !!expanded[review.id];
+              const shown = isLong && !isOpen ? `${body.slice(0, REVIEW_PREVIEW_CHARS).trimEnd()}…` : body;
+              const author = review.author || 'Anonymous';
+              const given = review.author_details?.rating;
+
+              return (
+                <article key={review.id} className="rounded-[20px] bg-surface p-6">
+                  <div className="mb-4 flex items-center gap-3">
+                    <Avatar name={author} size="h-10 w-10" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{author}</p>
+                      <p className="text-[13px] text-muted">{formatDate(review.created_at)}</p>
+                    </div>
+                    {given ? (
+                      <span className="flex-none rounded-full bg-ground px-2.5 py-1 text-[13px] font-semibold">
+                        {given}<span className="text-muted">/10</span>
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className="whitespace-pre-line break-words text-[15px] leading-relaxed">{shown}</p>
+
+                  {isLong && (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded((prev) => ({ ...prev, [review.id]: !isOpen }))}
+                      className="link mt-3 text-[15px]"
+                    >
+                      {isOpen ? 'Show less' : 'Read the whole review'}
+                    </button>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* ---------- More like this ---------- */}
       {similar.length > 0 && (
-        <div className="container mx-auto px-6 max-w-5xl mt-4 md:mt-12">
+        <div className="wrap mt-2">
           <MediaRow title="More like this" items={similar} emptyText="" showCount={false} />
         </div>
       )}
 
       {/* ---------- Photo viewer ---------- */}
       {openPhoto !== null && photos[openPhoto] && (
-        <div
-          onClick={() => setOpenPhoto(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Photo viewer"
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4 md:p-12"
-        >
+        <div role="dialog" aria-modal="true" aria-label="Photo viewer" className="fixed inset-0 z-[80] grid place-items-center p-4 md:p-14">
+          <div className="dialog-backdrop" onClick={() => setOpenPhoto(null)} />
           <img
+            key={photos[openPhoto].file_path}
             src={getImageUrl(photos[openPhoto].file_path, 'original')}
             alt={`Photo ${openPhoto + 1} from ${title}`}
-            onClick={(e) => e.stopPropagation()}
-            className="max-w-full max-h-[85vh] object-contain rounded-lg"
+            className="dialog-panel relative max-h-[82vh] max-w-full rounded-[16px] object-contain"
           />
+
+          <p className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-ground px-3.5 py-1.5 text-sm font-semibold">
+            {openPhoto + 1} / {photos.length}
+          </p>
+          <button type="button" onClick={() => setOpenPhoto(null)} className="icon-btn absolute right-4 top-4 bg-ground" aria-label="Close photo viewer">
+            <Icon name="x" />
+          </button>
 
           {photos.length > 1 && (
             <>
@@ -236,17 +201,17 @@ export default function DetailsExtras({ item, mediaType }) {
                 type="button"
                 onClick={(e) => step(e, -1)}
                 aria-label="Previous photo"
-                className="absolute left-3 md:left-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/60 hover:bg-white hover:text-black text-white flex items-center justify-center transition-colors"
+                className="icon-btn absolute left-3 top-1/2 h-12 w-12 -translate-y-1/2 bg-ground md:left-6"
               >
-                <ChevronIcon direction="left" />
+                <Icon name="chevronLeft" />
               </button>
               <button
                 type="button"
                 onClick={(e) => step(e, 1)}
                 aria-label="Next photo"
-                className="absolute right-3 md:right-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/60 hover:bg-white hover:text-black text-white flex items-center justify-center transition-colors"
+                className="icon-btn absolute right-3 top-1/2 h-12 w-12 -translate-y-1/2 bg-ground md:right-6"
               >
-                <ChevronIcon direction="right" />
+                <Icon name="chevronRight" />
               </button>
             </>
           )}

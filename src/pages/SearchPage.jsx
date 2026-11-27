@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { searchContent, getImageUrl } from '../lib/tmdb';
 import MovieCard from '../components/ui/MovieCard';
 import MovieCardSkeleton from '../components/ui/MovieCardSkeleton';
@@ -67,6 +67,7 @@ export default function SearchPage() {
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [watchlistIds, setWatchlistIds] = useState(new Set());
+  const [watchedIds, setWatchedIds] = useState(new Set());
   const [sortBy, setSortBy] = useState('relevance');
   const [people, setPeople] = useState([]);
 
@@ -79,13 +80,21 @@ export default function SearchPage() {
     async function fetchWatchlist() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const { data: wlData } = await supabase
-          .from('watchlist')
-          .select('movie_id, media_type')
-          .eq('user_id', session.user.id);
-        if (wlData) {
-          setWatchlistIds(new Set(wlData.map(r => wlKey(r.media_type || 'movie', r.movie_id))));
+        const [watchlistRes, completedRes, watchedRes] = await Promise.all([
+          supabase.from('watchlist').select('movie_id, media_type').eq('user_id', session.user.id),
+          supabase.from('completed_items').select('media_id, media_type').eq('user_id', session.user.id),
+          supabase.from('watched_movies').select('movie_id').eq('user_id', session.user.id),
+        ]);
+        if (watchlistRes.data) {
+          setWatchlistIds(new Set(watchlistRes.data.map(r => wlKey(r.media_type || 'movie', r.movie_id))));
         }
+        setWatchedIds(new Set([
+          ...(completedRes.data || []).map(r => wlKey(r.media_type || 'movie', r.media_id)),
+          ...(watchedRes.data || []).map(r => wlKey('movie', r.movie_id)),
+        ]));
+      } else {
+        setWatchlistIds(new Set());
+        setWatchedIds(new Set());
       }
     }
     fetchWatchlist();
@@ -142,111 +151,137 @@ export default function SearchPage() {
     });
   };
 
+  const handleWatchedToggle = (id, watched, type = 'movie') => {
+    setWatchedIds(prev => {
+      const next = new Set(prev);
+      if (watched) next.add(wlKey(type, id));
+      else next.delete(wlKey(type, id));
+      return next;
+    });
+  };
+
   const sortedResults = sortResults(results, sortBy);
+  const countWords = [
+    !peopleOnly && results.length > 0 ? `${results.length}${results.length >= 20 ? '+' : ''} ${results.length === 1 ? 'title' : 'titles'}` : null,
+    people.length > 0 ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : null,
+  ].filter(Boolean).join(' and ');
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0b101e] p-8 pt-32 transition-colors duration-500">
-      <div className="container mx-auto">
-        <div className="mb-10 border-b border-slate-200 dark:border-white/10 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white transition-colors">
-            Search Results for <span className="text-blue-600 dark:text-[#00f0ff]">"{query}"</span>
+    <div className="wrap pt-6 sm:pt-10">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.035em] sm:text-[32px]">
+            <span className="text-muted">Results for </span>“{query}”
           </h1>
-
-          {!loading && results.length > 0 && (
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              aria-label="Sort results"
-              className="bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-white/10 text-slate-900 dark:text-white rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:border-blue-500 dark:focus:border-[#00f0ff] transition-colors w-fit"
-            >
-              {SORT_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          )}
+          <p className="mt-2 text-[15px] text-muted">
+            {loading ? 'Searching TMDB and public profiles…' : countWords ? `${countWords} found.` : 'Nothing found yet.'}
+            {!peopleOnly && ' Start with @ to search people only.'}
+          </p>
         </div>
-        
-        {/* People whose public username or nickname matches */}
-        {!loading && people.length > 0 && (
-          <section className="mb-12" aria-labelledby="people-heading">
-            <h2 id="people-heading" className="text-2xl font-bold text-slate-900 dark:text-white mb-4">People</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {people.map((person) => (
-                <PersonCard key={person.username} person={person} />
-              ))}
-            </div>
-          </section>
+
+        {!loading && results.length > 0 && (
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            aria-label="Sort results"
+            className="chip w-fit"
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* People whose public username or nickname matches */}
+      {!loading && people.length > 0 && (
+        <section className="mt-10" aria-labelledby="people-heading">
+          <h2 id="people-heading" className="mb-4 text-xl font-bold">People</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {people.map((person, i) => (
+              <div key={person.username} className="arrive" style={{ '--i': i }}>
+                <PersonCard person={person} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="mt-10">
+        {!peopleOnly && !loading && results.length > 0 && people.length > 0 && (
+          <h2 className="mb-4 text-xl font-bold">Movies and shows</h2>
         )}
 
         {loading && !peopleOnly ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-            {[...Array(10)].map((_, index) => (
+          <div className="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {[...Array(12)].map((_, index) => (
               <MovieCardSkeleton key={`skeleton-${index}`} />
             ))}
           </div>
         ) : results.length === 0 ? (
           peopleOnly ? (
             loading ? (
-              <p className="text-lg text-slate-500 dark:text-slate-400">Searching...</p>
+              <p className="text-lg text-muted">Searching…</p>
             ) : people.length === 0 ? (
-              <div className="flex justify-center items-center h-64 bg-slate-100 dark:bg-slate-900/40 rounded-xl transition-colors">
-                <p className="text-xl font-medium text-slate-500 dark:text-slate-400">
-                  No public profiles match that username.
-                </p>
-              </div>
+              <EmptyResult text="No public profiles match that username." />
             ) : null
           ) : (
-            <div className="flex justify-center items-center h-64 bg-slate-100 dark:bg-slate-900/40 rounded-xl transition-colors">
-              <p className="text-xl font-medium text-slate-500 dark:text-slate-400">
-                No movies or TV shows found for that search.
-              </p>
-            </div>
+            <EmptyResult text="No movies or shows on TMDB match that search." />
           )
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 w-full">
-              {sortedResults.map((item) => {
+            <div className="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {sortedResults.map((item, i) => {
                 const isTV = item.media_type === 'tv';
                 const mediaType = isTV ? 'tv' : 'movie';
                 const title = isTV ? item.name : item.title;
                 const releaseDate = isTV ? item.first_air_date : item.release_date;
                 const year = releaseDate ? releaseDate.substring(0, 4) : 'N/A';
-                
+
                 return (
-                  <MovieCard 
-                    // Stable key (not the array index), so cards keep their state when the sort order changes
-                    key={wlKey(mediaType, item.id)}
-                    id={item.id} 
-                    title={title} 
-                    genre={isTV ? 'TV Show' : 'Movie'} 
-                    releaseYear={year} 
-                    rating={item.vote_average}
-                    voteCount={item.vote_count}
-                    posterUrl={getImageUrl(item.poster_path)} 
-                    posterPath={item.poster_path}
-                    mediaType={mediaType}
-                    initialInWatchlist={watchlistIds.has(wlKey(mediaType, item.id))}
-                    onWatchlistToggle={handleWatchlistToggle}
-                    linkUrl={isTV ? `/tv/${item.id}` : `/movie/${item.id}`} 
-                  />
+                  // Stable key (not the array index), so cards keep their state when the sort order changes
+                  <div key={wlKey(mediaType, item.id)} className="arrive" style={{ '--i': i % 12 }}>
+                    <MovieCard
+                      id={item.id}
+                      title={title}
+                      genre={isTV ? 'Show' : 'Movie'}
+                      releaseYear={year}
+                      rating={item.vote_average}
+                      voteCount={item.vote_count}
+                      posterUrl={getImageUrl(item.poster_path, 'w342')}
+                      posterPath={item.poster_path}
+                      mediaType={mediaType}
+                      initialInWatchlist={watchlistIds.has(wlKey(mediaType, item.id))}
+                      initialIsWatched={watchedIds.has(wlKey(mediaType, item.id))}
+                      onWatchlistToggle={handleWatchlistToggle}
+                      onWatchedToggle={handleWatchedToggle}
+                      linkUrl={isTV ? `/tv/${item.id}` : `/movie/${item.id}`}
+                      note={isTV ? 'Show' : undefined}
+                    />
+                  </div>
                 );
               })}
             </div>
 
             {results.length >= 20 && (
-              <div className="flex justify-center mt-12 pb-8">
-                <Button 
-                  onClick={loadMore} 
-                  disabled={loadingMore}
-                  className="bg-blue-600 dark:bg-[#00f0ff] text-white dark:text-[#0b101e] hover:bg-blue-700 dark:hover:bg-[#00c0cc] px-10 py-3 font-bold transition-colors"
-                >
-                  {loadingMore ? 'Loading...' : 'Load More Results'}
+              <div className="mt-12 flex justify-center">
+                <Button onClick={loadMore} disabled={loadingMore} variant="quiet" size="lg">
+                  {loadingMore ? 'Loading…' : 'Load more results'}
                 </Button>
               </div>
             )}
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function EmptyResult({ text }) {
+  return (
+    <div className="flex min-h-[200px] flex-col items-start justify-center gap-4 rounded-[20px] bg-surface px-6 py-8 sm:px-10">
+      <p className="text-lg font-semibold">{text}</p>
+      <Link to="/discover" className="btn btn-primary btn-sm">Browse Discover instead</Link>
     </div>
   );
 }
